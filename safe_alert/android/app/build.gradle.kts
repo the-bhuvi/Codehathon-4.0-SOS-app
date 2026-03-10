@@ -7,7 +7,7 @@ plugins {
 
 android {
     namespace = "com.safealert.safe_alert"
-    compileSdk = 34
+    compileSdk = 36
     ndkVersion = "26.1.10909125"
 
     compileOptions {
@@ -22,7 +22,7 @@ android {
 
     defaultConfig {
         applicationId = "com.safealert.safe_alert"
-        minSdk = 21
+        minSdk = flutter.minSdkVersion
         multiDexEnabled = true
         targetSdk = 34
         versionCode = flutter.versionCode

@@ -139,10 +139,10 @@ class SOSNotifier extends StateNotifier<SOSState> {
       String? audioUrl;
       String? videoUrl;
 
-      // Start camera capture if requested (shake-triggered) and no video provided
+      // Start camera video capture if requested (shake-triggered) and no video provided
       Future<String?>? cameraFuture;
       if (captureCamera && (videoFilePath == null || videoFilePath.isEmpty)) {
-        cameraFuture = _captureAndUploadPhoto();
+        cameraFuture = _captureAndUploadVideo();
       }
 
       // Upload voice recording if available
@@ -290,28 +290,41 @@ class SOSNotifier extends StateNotifier<SOSState> {
     }
   }
 
-  /// Capture a photo using the device camera and upload it
-  Future<String?> _captureAndUploadPhoto() async {
+  /// Record video from front camera for emergency capture (shake-triggered)
+  /// Records for 10 seconds and uploads to storage
+  Future<String?> _captureAndUploadVideo() async {
     try {
       final cameras = await availableCameras();
       if (cameras.isEmpty) return null;
 
-      // Prefer back camera
+      // Use front camera for emergency recording (captures the situation/surroundings)
       final camera = cameras.firstWhere(
-        (c) => c.lensDirection == CameraLensDirection.back,
+        (c) => c.lensDirection == CameraLensDirection.front,
         orElse: () => cameras.first,
       );
 
-      final controller = CameraController(camera, ResolutionPreset.medium,
-          enableAudio: false);
+      final controller = CameraController(
+        camera, 
+        ResolutionPreset.medium,
+        enableAudio: true, // Capture audio for evidence
+      );
       await controller.initialize();
 
-      final image = await controller.takePicture();
+      // Start video recording
+      await controller.startVideoRecording();
+      debugPrint('Emergency video recording started (front camera)');
+
+      // Record for 10 seconds
+      await Future.delayed(const Duration(seconds: 10));
+
+      // Stop recording and get the video file
+      final videoFile = await controller.stopVideoRecording();
       await controller.dispose();
 
-      return await _uploadMediaFile(image.path, 'photo');
+      debugPrint('Emergency video recording completed: ${videoFile.path}');
+      return await _uploadMediaFile(videoFile.path, 'video');
     } catch (e) {
-      debugPrint('Camera capture error: $e');
+      debugPrint('Camera video capture error: $e');
       return null;
     }
   }
