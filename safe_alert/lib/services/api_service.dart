@@ -10,8 +10,8 @@ class ApiService {
   ApiService({String? baseUrl}) : _baseUrl = baseUrl ?? _defaultBaseUrl {
     _dio = Dio(BaseOptions(
       baseUrl: _baseUrl,
-      connectTimeout: const Duration(seconds: 15),
-      receiveTimeout: const Duration(seconds: 15),
+      connectTimeout: const Duration(seconds: 5),
+      receiveTimeout: const Duration(seconds: 5),
       headers: {'Content-Type': 'application/json'},
     ));
   }
@@ -27,7 +27,8 @@ class ApiService {
       return SOSResponse.fromJson(response.data);
     } on DioException catch (e) {
       if (e.type == DioExceptionType.connectionTimeout ||
-          e.type == DioExceptionType.connectionError) {
+          e.type == DioExceptionType.connectionError ||
+          e.type == DioExceptionType.receiveTimeout) {
         throw SOSOfflineException('No internet connection');
       }
       throw SOSApiException(

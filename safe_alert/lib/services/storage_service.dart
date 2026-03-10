@@ -128,6 +128,16 @@ class StorageService {
     await prefs.setBool('shake_panic_enabled', val);
   }
 
+  Future<String> getShakeSensitivity() async {
+    final prefs = await _prefs;
+    return prefs.getString('shake_sensitivity') ?? 'medium';
+  }
+
+  Future<void> setShakeSensitivity(String val) async {
+    final prefs = await _prefs;
+    await prefs.setString('shake_sensitivity', val);
+  }
+
   Future<double> getShakeThreshold() async {
     final prefs = await _prefs;
     return prefs.getDouble('shake_threshold') ?? 12.0;

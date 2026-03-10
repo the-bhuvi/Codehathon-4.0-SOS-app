@@ -1,7 +1,11 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:camera/camera.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:safe_alert/models/incident.dart';
 import 'package:safe_alert/models/sos_models.dart';
 import 'package:safe_alert/models/user_profile.dart';
@@ -110,23 +114,42 @@ class SOSNotifier extends StateNotifier<SOSState> {
     _autoSendTimer = null;
   }
 
-  Future<void> sendSOS(String message, {String emergencyType = 'general'}) async {
+  Future<void> sendSOS(String message, {String emergencyType = 'general', String? audioFilePath, bool captureCamera = false}) async {
     _autoSendTimer?.cancel();
     state = state.copyWith(status: SOSStatus.sending);
 
     try {
-      Position? position = await _locationService.getCurrentPosition();
+      // Parallelize location + profile fetch for speed
+      final results = await Future.wait([
+        _locationService.getCurrentPosition(),
+        _storageService.getUserProfile(),
+      ]);
+      Position? position = results[0] as Position?;
       position ??= await _locationService.getLastKnownPosition();
+      final profile = results[1] as UserProfile;
 
       final effectiveMessage =
           message.isEmpty ? 'Emergency! Need help!' : message;
       final lat = position?.latitude ?? 0.0;
       final lng = position?.longitude ?? 0.0;
       final timestamp = DateTime.now().toUtc().toIso8601String();
-
-      // Load user profile
-      final profile = await _storageService.getUserProfile();
       final agency = SupabaseService.routeToAgency(emergencyType);
+
+      // Upload media in parallel (non-blocking for SOS)
+      String? audioUrl;
+      String? videoUrl;
+
+      // Start camera capture if requested (shake-triggered)
+      Future<String?>? cameraFuture;
+      if (captureCamera) {
+        cameraFuture = _captureAndUploadPhoto();
+      }
+
+      // Upload voice recording if available
+      Future<String?>? audioFuture;
+      if (audioFilePath != null && audioFilePath.isNotEmpty) {
+        audioFuture = _uploadMediaFile(audioFilePath, 'audio');
+      }
 
       final request = SOSRequest(
         message: effectiveMessage,
@@ -142,13 +165,13 @@ class SOSNotifier extends StateNotifier<SOSState> {
         medicalConditions: profile.medicalConditions,
       );
 
+      // Send SOS to backend/Supabase first (fast path)
+      Incident? incident;
       try {
         final response = await _apiService.sendSOS(request);
-        Incident? incident;
         if (response.storedIncident != null) {
           incident = Incident.fromJson(response.storedIncident!);
         }
-
         state = SOSState(
           status: SOSStatus.sent,
           response: response,
@@ -156,82 +179,125 @@ class SOSNotifier extends StateNotifier<SOSState> {
           sentAt: DateTime.now(),
         );
       } on SOSOfflineException {
-        // Fallback: insert directly into Supabase with rule-based severity
-        try {
-          final severity = SupabaseService.classifySeverity(effectiveMessage);
-          final incident = await _supabaseService.insertIncident(
-            lat: lat,
-            lng: lng,
-            message: effectiveMessage,
-            severity: severity,
-            timestamp: timestamp,
-            emergencyType: emergencyType,
-            agency: agency,
-            userName: profile.fullName,
-            userPhone: profile.phone,
-            emergencyContactName: profile.emergencyContactName,
-            emergencyContactPhone: profile.emergencyContactPhone,
-            bloodGroup: profile.bloodGroup,
-            medicalConditions: profile.medicalConditions,
-          );
-
-          state = SOSState(
-            status: SOSStatus.sent,
-            response: SOSResponse(success: true, aiSeverity: severity, agency: agency),
-            activeIncident: incident,
-            sentAt: DateTime.now(),
-          );
-        } catch (supabaseError) {
-          await _offlineQueueService.enqueue(request);
-          state = SOSState(
-            status: SOSStatus.sent,
-            response: SOSResponse(success: true, aiSeverity: 'PENDING'),
-            sentAt: DateTime.now(),
-          );
-        }
+        incident = await _fallbackSupabaseInsert(lat, lng, effectiveMessage, timestamp, emergencyType, agency, profile);
       } on SOSApiException {
-        try {
-          final severity = SupabaseService.classifySeverity(effectiveMessage);
-          final incident = await _supabaseService.insertIncident(
-            lat: lat,
-            lng: lng,
-            message: effectiveMessage,
-            severity: severity,
-            timestamp: timestamp,
-            emergencyType: emergencyType,
-            agency: agency,
-            userName: profile.fullName,
-            userPhone: profile.phone,
-            emergencyContactName: profile.emergencyContactName,
-            emergencyContactPhone: profile.emergencyContactPhone,
-            bloodGroup: profile.bloodGroup,
-            medicalConditions: profile.medicalConditions,
-          );
-
-          state = SOSState(
-            status: SOSStatus.sent,
-            response: SOSResponse(success: true, aiSeverity: severity, agency: agency),
-            activeIncident: incident,
-            sentAt: DateTime.now(),
-          );
-        } catch (supabaseError) {
-          await _offlineQueueService.enqueue(request);
-          state = SOSState(
-            status: SOSStatus.sent,
-            response: SOSResponse(success: true, aiSeverity: 'PENDING'),
-            sentAt: DateTime.now(),
-          );
-        }
+        incident = await _fallbackSupabaseInsert(lat, lng, effectiveMessage, timestamp, emergencyType, agency, profile);
       }
 
-      // Send SMS to emergency contacts
+      // Send SMS in background (non-blocking)
       _sendEmergencySMS(profile, effectiveMessage, lat, lng);
+
+      // Wait for media uploads and update incident record
+      try {
+        if (audioFuture != null) audioUrl = await audioFuture;
+        if (cameraFuture != null) videoUrl = await cameraFuture;
+
+        if (incident != null && (audioUrl != null || videoUrl != null)) {
+          final updateData = <String, dynamic>{};
+          if (audioUrl != null) updateData['audio_url'] = audioUrl;
+          if (videoUrl != null) updateData['video_url'] = videoUrl;
+          await Supabase.instance.client
+              .from('incidents')
+              .update(updateData)
+              .eq('id', incident.id);
+        }
+      } catch (e) {
+        debugPrint('Media upload/update error: $e');
+      }
 
     } catch (e) {
       state = state.copyWith(
         status: SOSStatus.failed,
         errorMessage: e.toString(),
       );
+    }
+  }
+
+  /// Fallback: insert directly into Supabase when API is unreachable
+  Future<Incident?> _fallbackSupabaseInsert(double lat, double lng, String message, String timestamp, String emergencyType, String agency, UserProfile profile) async {
+    try {
+      final severity = SupabaseService.classifySeverity(message);
+      final incident = await _supabaseService.insertIncident(
+        lat: lat, lng: lng, message: message, severity: severity,
+        timestamp: timestamp, emergencyType: emergencyType, agency: agency,
+        userName: profile.fullName, userPhone: profile.phone,
+        emergencyContactName: profile.emergencyContactName,
+        emergencyContactPhone: profile.emergencyContactPhone,
+        bloodGroup: profile.bloodGroup, medicalConditions: profile.medicalConditions,
+      );
+      state = SOSState(
+        status: SOSStatus.sent,
+        response: SOSResponse(success: true, aiSeverity: severity, agency: agency),
+        activeIncident: incident,
+        sentAt: DateTime.now(),
+      );
+      return incident;
+    } catch (supabaseError) {
+      final request = SOSRequest(
+        message: message, latitude: lat, longitude: lng, timestamp: timestamp,
+        emergencyType: emergencyType, userName: profile.fullName, userPhone: profile.phone,
+        emergencyContactName: profile.emergencyContactName,
+        emergencyContactPhone: profile.emergencyContactPhone,
+        bloodGroup: profile.bloodGroup, medicalConditions: profile.medicalConditions,
+      );
+      await _offlineQueueService.enqueue(request);
+      state = SOSState(
+        status: SOSStatus.sent,
+        response: SOSResponse(success: true, aiSeverity: 'PENDING'),
+        sentAt: DateTime.now(),
+      );
+      return null;
+    }
+  }
+
+  /// Upload a media file to Supabase Storage and return its public URL
+  Future<String?> _uploadMediaFile(String filePath, String type) async {
+    try {
+      final file = File(filePath);
+      if (!await file.exists()) return null;
+
+      final ext = filePath.split('.').last;
+      final fileName = '${type}_${DateTime.now().millisecondsSinceEpoch}.$ext';
+      final storagePath = 'sos-media/$fileName';
+
+      await Supabase.instance.client.storage
+          .from('sos-media')
+          .upload(storagePath, file);
+
+      final url = Supabase.instance.client.storage
+          .from('sos-media')
+          .getPublicUrl(storagePath);
+
+      return url;
+    } catch (e) {
+      debugPrint('Media upload error ($type): $e');
+      return null;
+    }
+  }
+
+  /// Capture a photo using the device camera and upload it
+  Future<String?> _captureAndUploadPhoto() async {
+    try {
+      final cameras = await availableCameras();
+      if (cameras.isEmpty) return null;
+
+      // Prefer back camera
+      final camera = cameras.firstWhere(
+        (c) => c.lensDirection == CameraLensDirection.back,
+        orElse: () => cameras.first,
+      );
+
+      final controller = CameraController(camera, ResolutionPreset.medium,
+          enableAudio: false);
+      await controller.initialize();
+
+      final image = await controller.takePicture();
+      await controller.dispose();
+
+      return await _uploadMediaFile(image.path, 'photo');
+    } catch (e) {
+      debugPrint('Camera capture error: $e');
+      return null;
     }
   }
 

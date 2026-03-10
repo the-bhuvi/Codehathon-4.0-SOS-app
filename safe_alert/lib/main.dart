@@ -104,13 +104,12 @@ class _SafeAlertAppState extends ConsumerState<SafeAlertApp> {
   }
 
   void _handleShakeTrigger() {
-    // Auto-trigger SOS immediately — no confirmation needed
-    Future.delayed(const Duration(milliseconds: 500), () {
-      ref.read(sosProvider.notifier).sendSOS(
-        'PANIC ALERT - Shake triggered!',
-        emergencyType: 'panic',
-      );
-    });
+    // Auto-trigger SOS immediately — no delay
+    ref.read(sosProvider.notifier).sendSOS(
+      'PANIC ALERT - Shake triggered!',
+      emergencyType: 'panic',
+      captureCamera: true,
+    );
   }
 
   @override

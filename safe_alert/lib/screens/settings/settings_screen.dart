@@ -29,6 +29,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   String _language = 'English';
   bool _shakePanicEnabled = true;
   bool _autoRecordEnabled = false;
+  String _shakeSensitivity = 'medium';
   bool _shakeServiceRunning = false;
 
   List<EmergencyContact> _contacts = [];
@@ -64,6 +65,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _language = await storage.getLanguage();
     _shakePanicEnabled = await storage.getShakePanicEnabled();
     _autoRecordEnabled = await storage.getAutoRecordEnabled();
+    _shakeSensitivity = await storage.getShakeSensitivity();
     _contacts = await storage.getContacts();
     _shakeServiceRunning = await ShakeBackgroundService.isRunning();
 
@@ -93,6 +95,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     await storage.setLanguage(_language);
     await storage.setShakePanicEnabled(_shakePanicEnabled);
     await storage.setAutoRecordEnabled(_autoRecordEnabled);
+    await storage.setShakeSensitivity(_shakeSensitivity);
 
     // Start or stop background shake service based on toggle
     if (_shakePanicEnabled) {
@@ -324,16 +327,52 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
                 if (_shakePanicEnabled) ...[
                   const Divider(height: 1, color: AppTheme.primaryDark),
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     child: Row(
                       children: [
-                        Icon(Icons.info_outline, color: AppTheme.textSecondary, size: 18),
+                        const Icon(Icons.speed, color: AppTheme.textSecondary, size: 18),
+                        const SizedBox(width: 8),
+                        const Text('Sensitivity',
+                            style: TextStyle(color: AppTheme.textPrimary, fontSize: 14)),
+                        const Spacer(),
+                        ToggleButtons(
+                          isSelected: [
+                            _shakeSensitivity == 'low',
+                            _shakeSensitivity == 'medium',
+                            _shakeSensitivity == 'high',
+                          ],
+                          onPressed: (index) {
+                            setState(() {
+                              _shakeSensitivity = ['low', 'medium', 'high'][index];
+                            });
+                          },
+                          borderRadius: BorderRadius.circular(8),
+                          selectedColor: Colors.white,
+                          fillColor: AppTheme.accentOrange,
+                          color: AppTheme.textSecondary,
+                          textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                          constraints: const BoxConstraints(minWidth: 56, minHeight: 32),
+                          children: const [
+                            Text('Low'),
+                            Text('Med'),
+                            Text('High'),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1, color: AppTheme.primaryDark),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    child: Row(
+                      children: [
+                        Icon(Icons.info_outline, color: AppTheme.textSecondary, size: 16),
                         SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            'Shake your phone 3 times to automatically trigger a panic alert with your location, even when the app is closed.',
-                            style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                            'Shake phone 3 times within 2 seconds to trigger SOS automatically, even when the app is closed.',
+                            style: TextStyle(color: AppTheme.textSecondary, fontSize: 11),
                           ),
                         ),
                       ],

@@ -84,3 +84,16 @@ HAVING COUNT(*) >= 2;
 -- 7. Enable Realtime on the table
 -- Go to Database -> Replication -> Toggle 'incidents' on.
 alter publication supabase_realtime add table public.incidents;
+
+-- 8. Create storage bucket for SOS media (audio recordings, photos)
+-- Run this in the Supabase SQL editor:
+INSERT INTO storage.buckets (id, name, public) VALUES ('sos-media', 'sos-media', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- Allow public read access to sos-media bucket
+CREATE POLICY "Public read access" ON storage.objects FOR SELECT
+USING (bucket_id = 'sos-media');
+
+-- Allow anonymous uploads to sos-media bucket
+CREATE POLICY "Allow anonymous uploads" ON storage.objects FOR INSERT
+WITH CHECK (bucket_id = 'sos-media');
