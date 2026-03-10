@@ -1,5 +1,4 @@
 import React from 'react';
-import { Clock, MapPin, CheckCircle, Mic, Video, Globe } from 'lucide-react';
 
 const AGENCY_ICONS = { police: '🚔', ambulance: '🚑', fire_dept: '🚒' };
 const TYPE_LABELS = {
@@ -10,10 +9,28 @@ const TYPE_LABELS = {
 const IncidentList = ({ incidents, activeIncident, setActiveIncident, onResolve }) => {
     const getSeverityClass = (severity) => {
         switch (severity?.toUpperCase()) {
-            case 'HIGH': return 'high';
-            case 'MEDIUM': return 'medium';
-            case 'LOW': return 'low';
-            default: return 'low';
+            case 'HIGH': return 'sev-critical';
+            case 'MEDIUM': return 'sev-high';
+            case 'LOW': return 'sev-medium';
+            default: return 'sev-low';
+        }
+    };
+
+    const getSeverityLabel = (severity) => {
+        switch (severity?.toUpperCase()) {
+            case 'HIGH': return 'CRITICAL';
+            case 'MEDIUM': return 'HIGH';
+            case 'LOW': return 'MEDIUM';
+            default: return 'LOW';
+        }
+    };
+
+    const getSeverityColor = (severity) => {
+        switch (severity?.toUpperCase()) {
+            case 'HIGH': return 'var(--red)';
+            case 'MEDIUM': return 'var(--amber)';
+            case 'LOW': return 'var(--blue)';
+            default: return 'var(--green)';
         }
     };
 
@@ -27,96 +44,82 @@ const IncidentList = ({ incidents, activeIncident, setActiveIncident, onResolve 
         return `${Math.floor(hours / 24)}d ago`;
     };
 
+    const formatTime = (dateString) => {
+        return new Date(dateString).toLocaleTimeString('en-IN', {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        });
+    };
+
+    if (incidents.length === 0) {
+        return (
+            <div className="empty-state">
+                <span style={{ fontSize: '1.5rem' }}>✅</span>
+                <span>No incidents in queue</span>
+            </div>
+        );
+    }
+
     return (
-        <div className="incident-list">
-            {incidents.length === 0 ? (
-                <p style={{ color: 'var(--text-secondary)', textAlign: 'center', marginTop: '40px' }}>
-                    No incidents reported. All clear!
-                </p>
-            ) : (
-                incidents.map((incident) => {
-                    const isResolved = incident.status === 'resolved';
-                    const sevClass = getSeverityClass(incident.severity);
-                    const isActive = activeIncident?.id === incident.id;
-                    const agencyIcon = AGENCY_ICONS[incident.agency] || '📍';
-                    const typeLabel = TYPE_LABELS[incident.emergency_type] || TYPE_LABELS.general;
+        <>
+            {incidents.map((incident) => {
+                const isResolved = incident.status === 'resolved';
+                const sevClass = getSeverityClass(incident.severity);
+                const isActive = activeIncident?.id === incident.id;
+                const agencyIcon = AGENCY_ICONS[incident.agency] || '📍';
+                const typeLabel = TYPE_LABELS[incident.emergency_type] || TYPE_LABELS.general;
+                const score = Math.floor((incident.severity_score || 0.7) * 100);
 
-                    return (
-                        <div key={incident.id}
-                            className={`incident-card ${sevClass} ${isActive ? 'active' : ''}`}
-                            onClick={() => setActiveIncident(incident)}>
-                            <div className="incident-card-indicator"></div>
+                return (
+                    <div
+                        key={incident.id}
+                        className={`incident-card ${sevClass} ${isActive ? 'active' : ''}`}
+                        onClick={() => setActiveIncident(incident)}
+                    >
+                        <div className="inc-top">
+                            <span className="inc-id">#{incident.id?.slice(-4) || '0000'} · {agencyIcon}</span>
+                            <span className={`sev-badge ${sevClass}`}>
+                                {getSeverityLabel(incident.severity)}
+                            </span>
+                        </div>
 
-                            <div className="incident-header">
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <span className={`incident-severity ${sevClass}`}>
-                                        {incident.severity || 'UNKNOWN'}
-                                    </span>
-                                    <span className="agency-badge">{agencyIcon}</span>
-                                    <span className="incident-time">
-                                        <Clock size={12} style={{ display: 'inline', marginRight: '4px', verticalAlign: '-1px' }} />
-                                        {calculateTimeElapsed(incident.created_at)}
-                                    </span>
+                        <div className="inc-name">{incident.user_name || 'Unknown User'}</div>
+
+                        <div className="inc-loc">
+                            📍 {incident.lat?.toFixed(4) || '—'}°N · {incident.lng?.toFixed(4) || '—'}°E
+                        </div>
+
+                        <div className="inc-ai">
+                            {typeLabel} {incident.detected_language && incident.detected_language !== 'en' && `· 🌐 ${incident.detected_language.toUpperCase()}`}
+                            {isResolved && ' · ✅ RESOLVED'}
+                        </div>
+
+                        <div className="inc-meta">
+                            <span className="inc-time">{formatTime(incident.created_at)}</span>
+                            <div className="inc-score">
+                                <div className="score-bar">
+                                    <div
+                                        className="score-fill"
+                                        style={{
+                                            width: `${score}%`,
+                                            background: getSeverityColor(incident.severity)
+                                        }}
+                                    ></div>
                                 </div>
-                                <button
-                                    className={`resolve-btn ${isResolved ? 'resolved-btn' : ''}`}
-                                    onClick={(e) => { e.stopPropagation(); if (!isResolved) onResolve(incident.id); }}
-                                    disabled={isResolved}>
-                                    <CheckCircle size={14} />
-                                    {isResolved ? 'Resolved' : 'Resolve'}
-                                </button>
-                            </div>
-
-                            {/* Emergency type + user info */}
-                            <div className="incident-meta">
-                                <span className="type-badge">{typeLabel}</span>
-                                {incident.user_name && <span className="user-badge">👤 {incident.user_name}</span>}
-                                {incident.detected_language && incident.detected_language !== 'en' && (
-                                    <span className="lang-badge"><Globe size={10} /> {incident.detected_language.toUpperCase()}</span>
-                                )}
-                            </div>
-
-                            <p className="incident-message">{incident.message}</p>
-
-                            {/* Original message if translated */}
-                            {incident.original_message && incident.detected_language !== 'en' && (
-                                <p className="incident-original">
-                                    Original: {incident.original_message}
-                                </p>
-                            )}
-
-                            {/* Media indicators */}
-                            <div className="media-indicators">
-                                {incident.audio_url && (
-                                    <span className="media-badge"><Mic size={12} /> Audio</span>
-                                )}
-                                {incident.video_url && (
-                                    <span className="media-badge"><Video size={12} /> Video</span>
-                                )}
-                                {incident.blood_group && (
-                                    <span className="media-badge">🩸 {incident.blood_group}</span>
-                                )}
-                                {incident.severity_score > 0 && (
-                                    <span className="media-badge">Score: {incident.severity_score}</span>
-                                )}
-                            </div>
-
-                            {/* Audio player inline */}
-                            {incident.audio_url && isActive && (
-                                <audio controls style={{ width: '100%', height: '28px', marginTop: '6px' }} src={incident.audio_url} />
-                            )}
-
-                            <div className="incident-footer">
-                                <div className="incident-status">
-                                    <span className={`status-dot ${isResolved ? 'resolved' : ''}`}></span>
-                                    {isResolved ? 'Resolved' : 'Active Emergency'}
-                                </div>
+                                <span style={{
+                                    color: getSeverityColor(incident.severity),
+                                    fontFamily: 'var(--mono)',
+                                    fontSize: '0.6rem'
+                                }}>
+                                    {score}
+                                </span>
                             </div>
                         </div>
-                    );
-                })
-            )}
-        </div>
+                    </div>
+                );
+            })}
+        </>
     );
 };
 

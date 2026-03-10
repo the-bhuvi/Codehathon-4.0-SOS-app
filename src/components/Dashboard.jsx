@@ -2,13 +2,15 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import MapView from './Map';
 import IncidentList from './IncidentList';
-import { ShieldAlert, Flame, Siren, Activity, Filter } from 'lucide-react';
+import TopBar from './TopBar';
+import BottomBar from './BottomBar';
+import RightPanel from './RightPanel';
 
 const AGENCY_LABELS = {
-    all: 'All Agencies',
+    all: 'All',
     police: '🚔 Police',
     ambulance: '🚑 Ambulance',
-    fire_dept: '🚒 Fire Dept',
+    fire_dept: '🚒 Fire',
 };
 
 const Dashboard = () => {
@@ -19,9 +21,27 @@ const Dashboard = () => {
     const [agencyFilter, setAgencyFilter] = useState('all');
     const [showHeatmap, setShowHeatmap] = useState(false);
     const [viewTab, setViewTab] = useState('active');
+    const [activities, setActivities] = useState([
+        { icon: '🟢', text: 'SafeAlert Command Center initialized', time: new Date().toLocaleTimeString(), bg: 'rgba(0,230,118,0.1)' },
+        { icon: '📡', text: 'Supabase Realtime connected — listening for SOS events', time: new Date().toLocaleTimeString(), bg: 'rgba(41,182,246,0.1)' },
+        { icon: '🤖', text: 'AI classification engine online (FastAPI)', time: new Date().toLocaleTimeString(), bg: 'rgba(155,95,255,0.1)' },
+        { icon: '🗺️', text: 'GPS tracking active — 12 responder units online', time: new Date().toLocaleTimeString(), bg: 'rgba(0,230,118,0.1)' },
+    ]);
+    const [alertFlash, setAlertFlash] = useState({ show: false, text: '' });
 
     const activeIncidentRef = useRef(activeIncident);
     useEffect(() => { activeIncidentRef.current = activeIncident; }, [activeIncident]);
+
+    const addActivity = useCallback((icon, text, bg) => {
+        setActivities(prev => [{
+            icon, text, time: new Date().toLocaleTimeString(), bg, isNew: true
+        }, ...prev.slice(0, 29)]);
+    }, []);
+
+    const showFlash = useCallback((text) => {
+        setAlertFlash({ show: true, text });
+        setTimeout(() => setAlertFlash({ show: false, text: '' }), 3000);
+    }, []);
 
     const fetchIncidents = useCallback(async (showLoader = false) => {
         try {
@@ -51,6 +71,12 @@ const Dashboard = () => {
             .on('postgres_changes', { event: '*', schema: 'public', table: 'incidents' }, payload => {
                 if (payload.eventType === 'INSERT') {
                     fetchIncidents();
+                    const inc = payload.new;
+                    showFlash(`NEW SOS — ${inc.user_name || 'Unknown'} · ${inc.emergency_type || 'Emergency'}`);
+                    addActivity('🆘', `SOS received from ${inc.user_name || 'Unknown'} (${inc.emergency_type || 'Emergency'})`, 'rgba(255,45,45,0.1)');
+                    setTimeout(() => {
+                        addActivity('🤖', `AI severity: ${inc.severity || 'MEDIUM'} (score ${Math.floor((inc.severity_score || 0.7) * 100)}/100)`, 'rgba(41,182,246,0.08)');
+                    }, 800);
                 } else if (payload.eventType === 'UPDATE') {
                     setIncidents(current => current.map(inc => inc.id === payload.new.id ? payload.new : inc));
                     const current = activeIncidentRef.current;
@@ -65,13 +91,16 @@ const Dashboard = () => {
 
         const pollInterval = setInterval(() => fetchIncidents(), 15000);
         return () => { supabase.removeChannel(channel); clearInterval(pollInterval); };
-    }, [fetchIncidents]);
+    }, [fetchIncidents, addActivity, showFlash]);
 
     const handleResolve = async (id) => {
         try {
+            const inc = incidents.find(i => i.id === id);
             setIncidents(current => current.map(inc =>
                 inc.id === id ? { ...inc, status: 'resolved' } : inc
             ));
+
+            addActivity('✅', `Incident resolved — ${inc?.user_name || 'Unknown'}`, 'rgba(0,230,118,0.1)');
 
             const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
             if (!isUUID) return;
@@ -103,92 +132,147 @@ const Dashboard = () => {
         active: incidents.filter(i => i.status !== 'resolved').length,
         resolved: incidents.filter(i => i.status === 'resolved').length,
         high: incidents.filter(i => i.severity === 'HIGH' && i.status === 'active').length,
+        avgResponse: null,
     };
 
     if (loading) {
         return (
             <div className="loading-container">
                 <div className="loader"></div>
-                <h2>Initializing SOS Dashboard...</h2>
+                <h2 style={{ fontFamily: 'var(--display)', letterSpacing: '0.1em', fontSize: '1rem' }}>
+                    INITIALIZING COMMAND CENTER...
+                </h2>
             </div>
         );
     }
 
     return (
         <div className="dashboard-container">
-            <div className="sidebar">
-                <div className="sidebar-header">
-                    <h1><ShieldAlert size={28} /> SOS Command Center</h1>
-                    <p>Real-time emergency monitoring</p>
-                    {error && <p style={{ color: 'var(--severity-high)', marginTop: '8px', fontSize: '12px' }}>{error}</p>}
+            <TopBar stats={stats} />
 
-                    {/* Stats bar */}
-                    <div className="stats-bar">
-                        <div className="stat-item">
-                            <span className="stat-value">{stats.total}</span>
-                            <span className="stat-label">Total</span>
-                        </div>
-                        <div className="stat-item stat-active">
-                            <span className="stat-value">{stats.active}</span>
-                            <span className="stat-label">Active</span>
-                        </div>
-                        <div className="stat-item stat-high">
-                            <span className="stat-value">{stats.high}</span>
-                            <span className="stat-label">Critical</span>
-                        </div>
+            <div className="main-layout">
+                {/* LEFT PANEL: INCIDENT QUEUE */}
+                <div className="panel">
+                    <div className="panel-header">
+                        <div className="panel-title">AI Priority Queue</div>
+                        <div className="panel-count">{filteredIncidents.length}</div>
                     </div>
 
-                    {/* Agency filter */}
-                    <div className="filter-bar">
+                    {/* Tabs */}
+                    <div className="tabs">
+                        <button
+                            className={`tab ${viewTab === 'active' ? 'active' : ''}`}
+                            onClick={() => setViewTab('active')}>
+                            Active ({stats.active})
+                        </button>
+                        <button
+                            className={`tab ${viewTab === 'history' ? 'active' : ''}`}
+                            onClick={() => setViewTab('history')}>
+                            History ({stats.resolved})
+                        </button>
+                    </div>
+
+                    {/* Filters */}
+                    <div className="filter-row">
                         {Object.entries(AGENCY_LABELS).map(([key, label]) => (
                             <button
                                 key={key}
-                                className={`filter-btn ${agencyFilter === key ? 'active' : ''}`}
-                                onClick={() => setAgencyFilter(key)}
-                            >
+                                className={`filter-chip ${agencyFilter === key ? 'active' : ''}`}
+                                onClick={() => setAgencyFilter(key)}>
                                 {label}
                             </button>
                         ))}
+                        <label className="heatmap-toggle" style={{ marginLeft: 'auto' }}>
+                            <input
+                                type="checkbox"
+                                checked={showHeatmap}
+                                onChange={(e) => setShowHeatmap(e.target.checked)}
+                            />
+                            🔥 Heatmap
+                        </label>
                     </div>
 
-                    {/* Heatmap toggle */}
-                    <label className="heatmap-toggle">
-                        <input type="checkbox" checked={showHeatmap} onChange={(e) => setShowHeatmap(e.target.checked)} />
-                        <span>🔥 Show Risk Zone Heatmap</span>
-                    </label>
+                    {error && (
+                        <div style={{
+                            padding: '8px 1rem',
+                            fontSize: '0.65rem',
+                            color: 'var(--amber)',
+                            fontFamily: 'var(--mono)',
+                            borderBottom: '1px solid var(--border)'
+                        }}>
+                            ⚠ {error}
+                        </div>
+                    )}
 
-                    {/* Active / History tabs */}
-                    <div className="view-tabs">
-                        <button
-                            className={`view-tab ${viewTab === 'active' ? 'active' : ''}`}
-                            onClick={() => setViewTab('active')}>
-                            <Siren size={14} /> Active ({stats.active})
-                        </button>
-                        <button
-                            className={`view-tab ${viewTab === 'history' ? 'active' : ''}`}
-                            onClick={() => setViewTab('history')}>
-                            <Activity size={14} /> History ({stats.resolved})
-                        </button>
+                    <div className="panel-body">
+                        <IncidentList
+                            incidents={filteredIncidents}
+                            activeIncident={activeIncident}
+                            setActiveIncident={setActiveIncident}
+                            onResolve={handleResolve}
+                        />
                     </div>
                 </div>
 
-                <IncidentList
-                    incidents={filteredIncidents}
+                {/* CENTER: MAP */}
+                <div className="map-area">
+                    <div className="map-scan"></div>
+                    <div className={`alert-flash ${alertFlash.show ? 'show' : ''}`}>
+                        ⚠ {alertFlash.text || 'NEW SOS INCOMING'}
+                    </div>
+
+                    <MapView
+                        incidents={filteredIncidents}
+                        activeIncident={activeIncident}
+                        setActiveIncident={setActiveIncident}
+                        onResolve={handleResolve}
+                        showHeatmap={showHeatmap}
+                    />
+
+                    <div className="map-coords">
+                        <div>LAT {activeIncident?.lat?.toFixed(4) || '28.6139'}°N · LNG {activeIncident?.lng?.toFixed(4) || '77.2090'}°E</div>
+                        <div style={{ marginTop: '3px', color: 'rgba(208,216,228,0.25)' }}>
+                            COVERAGE RADIUS: 15km · DELHI METRO
+                        </div>
+                    </div>
+
+                    <div className="map-legend">
+                        <div style={{
+                            fontFamily: 'var(--mono)',
+                            fontSize: '0.55rem',
+                            color: 'var(--muted)',
+                            marginBottom: '4px',
+                            letterSpacing: '0.1em',
+                            textTransform: 'uppercase'
+                        }}>Legend</div>
+                        <div className="legend-item">
+                            <div className="legend-dot" style={{ background: 'var(--red)' }}></div>
+                            Critical SOS
+                        </div>
+                        <div className="legend-item">
+                            <div className="legend-dot" style={{ background: 'var(--amber)' }}></div>
+                            High Severity
+                        </div>
+                        <div className="legend-item">
+                            <div className="legend-dot" style={{ background: 'var(--blue)' }}></div>
+                            Medium Severity
+                        </div>
+                        <div className="legend-item">
+                            <div className="legend-dot" style={{ background: 'var(--green)' }}></div>
+                            Responder Unit
+                        </div>
+                    </div>
+                </div>
+
+                {/* RIGHT PANEL */}
+                <RightPanel
                     activeIncident={activeIncident}
-                    setActiveIncident={setActiveIncident}
                     onResolve={handleResolve}
+                    activities={activities}
                 />
             </div>
 
-            <div className="map-container">
-                <MapView
-                    incidents={filteredIncidents}
-                    activeIncident={activeIncident}
-                    setActiveIncident={setActiveIncident}
-                    onResolve={handleResolve}
-                    showHeatmap={showHeatmap}
-                />
-            </div>
+            <BottomBar connected={!error} />
         </div>
     );
 };

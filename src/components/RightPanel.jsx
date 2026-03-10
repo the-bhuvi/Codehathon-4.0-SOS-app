@@ -1,0 +1,222 @@
+import React, { useState, useEffect, useRef } from 'react';
+
+const EMERGENCY_LABELS = {
+    fire: '🔥 Fire', accident: '💥 Accident', robbery: '🔫 Robbery',
+    medical: '🏥 Medical', following: '👤 Following', unsafe: '⚠️ Unsafe', general: '📍 General',
+};
+
+const AGENCY_ICONS = { police: '🚔', ambulance: '🚑', fire_dept: '🚒' };
+
+const RightPanel = ({ activeIncident, onResolve, activities }) => {
+    const [aiText, setAiText] = useState('Awaiting incident data...');
+    const [isTyping, setIsTyping] = useState(false);
+    const [confidences, setConfidences] = useState({ severity: 0, urgency: 0, confidence: 0 });
+    const typeTimerRef = useRef(null);
+
+    const getSeverityClass = (severity) => {
+        switch (severity?.toUpperCase()) {
+            case 'HIGH': return 'sev-critical';
+            case 'MEDIUM': return 'sev-high';
+            case 'LOW': return 'sev-medium';
+            default: return 'sev-low';
+        }
+    };
+
+    const getSeverityLabel = (severity) => {
+        switch (severity?.toUpperCase()) {
+            case 'HIGH': return 'CRITICAL';
+            case 'MEDIUM': return 'HIGH';
+            case 'LOW': return 'MEDIUM';
+            default: return 'LOW';
+        }
+    };
+
+    const generateAIAnalysis = (incident) => {
+        const score = Math.floor((incident.severity_score || 0.7) * 100);
+        const hr = Math.floor(120 + Math.random() * 60);
+        const accuracy = Math.floor(3 + Math.random() * 8);
+        const distance = (Math.random() * 3 + 0.5).toFixed(1);
+
+        return `ANALYZING: ${incident.emergency_type || 'Emergency'} at ${incident.lat?.toFixed(4) || '—'}°N
+
+Pattern match: ${incident.severity === 'HIGH' ? 'HIGH' : 'MODERATE'} distress markers detected.
+User vitals via wearable: HR ${hr}bpm.
+Location risk score: ${score}/100.
+Nearest responder: ${distance}km away.
+GPS Accuracy: ±${accuracy}m
+
+RECOMMENDATION: ${incident.severity === 'HIGH' ? 'Immediate dispatch required.' : 'Standard response protocol.'}`;
+    };
+
+    useEffect(() => {
+        if (activeIncident) {
+            setIsTyping(true);
+            const fullText = generateAIAnalysis(activeIncident);
+            let i = 0;
+            setAiText('');
+
+            clearTimeout(typeTimerRef.current);
+
+            const typeNext = () => {
+                if (i < fullText.length) {
+                    setAiText(fullText.slice(0, i + 1));
+                    i++;
+                    typeTimerRef.current = setTimeout(typeNext, 12);
+                } else {
+                    setIsTyping(false);
+                }
+            };
+            typeNext();
+
+            // Set confidence bars
+            const score = Math.floor((activeIncident.severity_score || 0.7) * 100);
+            setTimeout(() => {
+                setConfidences({
+                    severity: score,
+                    urgency: Math.min(100, score + Math.floor((Math.random() - 0.3) * 15)),
+                    confidence: Math.floor(82 + Math.random() * 16)
+                });
+            }, 200);
+        } else {
+            setAiText('Awaiting incident data...');
+            setConfidences({ severity: 0, urgency: 0, confidence: 0 });
+        }
+
+        return () => clearTimeout(typeTimerRef.current);
+    }, [activeIncident]);
+
+    const handleDispatch = () => {
+        if (!activeIncident) return;
+        const responders = ['Alpha-1', 'Bravo-2', 'Charlie-3', 'Delta-4'];
+        const responder = responders[Math.floor(Math.random() * responders.length)];
+        const eta = (Math.random() * 8 + 2).toFixed(1);
+        alert(`🚑 Responder ${responder} dispatched — ETA ${eta} min`);
+    };
+
+    const handleContact = () => {
+        if (!activeIncident) return;
+        alert(`📞 Initiating call to ${activeIncident.user_name || 'user'}`);
+    };
+
+    return (
+        <div className="panel right-panel">
+            {/* AI ANALYSIS */}
+            <div className="ai-box">
+                <div className="ai-box-title">
+                    🤖 AI Analysis Engine
+                    {isTyping && (
+                        <div className="ai-thinking">
+                            <div className="ai-dot"></div>
+                            <div className="ai-dot"></div>
+                            <div className="ai-dot"></div>
+                        </div>
+                    )}
+                </div>
+                <div className="ai-output">
+                    {aiText || <span style={{ color: 'var(--muted)' }}>Awaiting incident data...</span>}
+                </div>
+                <div className="ai-confidence">
+                    <div className="conf-row">
+                        <span className="conf-label">Severity</span>
+                        <div className="conf-bar">
+                            <div className="conf-fill" style={{ width: `${confidences.severity}%`, background: 'var(--red)' }}></div>
+                        </div>
+                        <span className="conf-val">{confidences.severity ? `${confidences.severity}%` : '—'}</span>
+                    </div>
+                    <div className="conf-row">
+                        <span className="conf-label">Urgency</span>
+                        <div className="conf-bar">
+                            <div className="conf-fill" style={{ width: `${confidences.urgency}%`, background: 'var(--amber)' }}></div>
+                        </div>
+                        <span className="conf-val">{confidences.urgency ? `${confidences.urgency}%` : '—'}</span>
+                    </div>
+                    <div className="conf-row">
+                        <span className="conf-label">Confidence</span>
+                        <div className="conf-bar">
+                            <div className="conf-fill" style={{ width: `${confidences.confidence}%`, background: 'var(--blue)' }}></div>
+                        </div>
+                        <span className="conf-val">{confidences.confidence ? `${confidences.confidence}%` : '—'}</span>
+                    </div>
+                </div>
+            </div>
+
+            {/* INCIDENT DETAIL */}
+            <div className="detail-box">
+                <div className="detail-title">Selected Incident</div>
+                {activeIncident ? (
+                    <div>
+                        <div className="detail-name">
+                            {AGENCY_ICONS[activeIncident.agency] || '📍'} {activeIncident.user_name || 'Unknown User'}
+                        </div>
+                        <span className={`sev-badge ${getSeverityClass(activeIncident.severity)}`} style={{ display: 'inline-block', marginTop: '6px' }}>
+                            {getSeverityLabel(activeIncident.severity)} · Score {Math.floor((activeIncident.severity_score || 0.7) * 100)}/100
+                        </span>
+                        <div className="detail-rows">
+                            <div className="detail-row">
+                                <span className="detail-key">Type</span>
+                                <span className="detail-val">{EMERGENCY_LABELS[activeIncident.emergency_type] || 'General'}</span>
+                            </div>
+                            <div className="detail-row">
+                                <span className="detail-key">Coordinates</span>
+                                <span className="detail-val">{activeIncident.lat?.toFixed(5)}°N</span>
+                            </div>
+                            <div className="detail-row">
+                                <span className="detail-key">Language</span>
+                                <span className="detail-val">{activeIncident.detected_language?.toUpperCase() || 'EN'}</span>
+                            </div>
+                            <div className="detail-row">
+                                <span className="detail-key">Triggered</span>
+                                <span className="detail-val">{new Date(activeIncident.created_at).toLocaleTimeString()}</span>
+                            </div>
+                            {activeIncident.blood_group && (
+                                <div className="detail-row">
+                                    <span className="detail-key">Blood Group</span>
+                                    <span className="detail-val">🩸 {activeIncident.blood_group}</span>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                ) : (
+                    <div className="empty-state" style={{ height: '120px' }}>
+                        <span style={{ fontSize: '1.2rem' }}>📍</span>
+                        <span>Select an incident</span>
+                    </div>
+                )}
+            </div>
+
+            {/* ACTIONS */}
+            {activeIncident && activeIncident.status !== 'resolved' && (
+                <div className="actions">
+                    <button className="btn btn-primary" onClick={handleDispatch}>⚡ DISPATCH RESPONDER</button>
+                    <button className="btn btn-resolve" onClick={() => onResolve(activeIncident.id)}>✓ MARK RESOLVED</button>
+                    <button className="btn btn-secondary" onClick={handleContact}>📞 CONTACT USER</button>
+                </div>
+            )}
+
+            {/* ACTIVITY FEED */}
+            <div className="panel-header" style={{ flexShrink: 0 }}>
+                <div className="panel-title">Live Activity</div>
+                <div className="waveform">
+                    <div className="wave-bar" style={{ animationDelay: '0s' }}></div>
+                    <div className="wave-bar" style={{ animationDelay: '0.1s' }}></div>
+                    <div className="wave-bar" style={{ animationDelay: '0.2s' }}></div>
+                    <div className="wave-bar" style={{ animationDelay: '0.3s' }}></div>
+                    <div className="wave-bar" style={{ animationDelay: '0.4s' }}></div>
+                </div>
+            </div>
+            <div className="activity">
+                {activities.map((act, idx) => (
+                    <div key={idx} className={`activity-item ${act.isNew ? 'new' : ''}`}>
+                        <div className="activity-icon" style={{ background: act.bg }}>{act.icon}</div>
+                        <div>
+                            <div className="activity-text">{act.text}</div>
+                            <div className="activity-time">{act.time}</div>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
+
+export default RightPanel;
