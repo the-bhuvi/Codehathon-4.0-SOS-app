@@ -166,7 +166,30 @@ RECOMMENDATION: ${incident.severity === 'HIGH' ? 'Immediate dispatch required.' 
                             </div>
                             <div className="detail-row">
                                 <span className="detail-key">Triggered</span>
-                                <span className="detail-val">{new Date(activeIncident.created_at).toLocaleTimeString()}</span>
+                                <span className="detail-val">
+                                    {(() => {
+                                        const dateStr = activeIncident.created_at;
+                                        if (!dateStr) return 'Unknown';
+                                        
+                                        const date = new Date(dateStr);
+                                        if (isNaN(date.getTime())) return 'Unknown';
+                                        
+                                        // Use IST timezone explicitly
+                                        const time = date.toLocaleTimeString('en-IN', {
+                                            hour: '2-digit',
+                                            minute: '2-digit',
+                                            second: '2-digit',
+                                            hour12: false,
+                                            timeZone: 'Asia/Kolkata'
+                                        });
+                                        const dateFormatted = date.toLocaleDateString('en-IN', {
+                                            day: 'numeric',
+                                            month: 'short',
+                                            timeZone: 'Asia/Kolkata'
+                                        });
+                                        return `${time} · ${dateFormatted}`;
+                                    })()}
+                                </span>
                             </div>
                             {activeIncident.blood_group && (
                                 <div className="detail-row">
@@ -174,6 +197,80 @@ RECOMMENDATION: ${incident.severity === 'HIGH' ? 'Immediate dispatch required.' 
                                     <span className="detail-val">🩸 {activeIncident.blood_group}</span>
                                 </div>
                             )}
+                            {activeIncident.medical_conditions && (
+                                <div className="detail-row">
+                                    <span className="detail-key">Medical</span>
+                                    <span className="detail-val">💊 {activeIncident.medical_conditions}</span>
+                                </div>
+                            )}
+                            {activeIncident.voice_transcript && (
+                                <div className="detail-row">
+                                    <span className="detail-key">Transcript</span>
+                                    <span className="detail-val" style={{ fontSize: '0.6rem' }}>{activeIncident.voice_transcript}</span>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* MESSAGE */}
+                        {activeIncident.message && (
+                            <div className="media-section">
+                                <div className="media-label">📝 SOS Message</div>
+                                <div className="media-content message-box">
+                                    {activeIncident.message}
+                                </div>
+                                {activeIncident.original_message && activeIncident.detected_language !== 'en' && (
+                                    <div className="media-content message-box" style={{ marginTop: '6px', opacity: 0.7, fontStyle: 'italic' }}>
+                                        Original: {activeIncident.original_message}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* DEBUG: Show audio_url value */}
+                        {console.log('Incident audio_url:', activeIncident.audio_url, 'video_url:', activeIncident.video_url)}
+
+                        {/* AUDIO PLAYER - Always show section */}
+                        <div className="media-section">
+                            <div className="media-label">🎤 Voice Recording</div>
+                            {activeIncident.audio_url && activeIncident.audio_url.trim() !== '' ? (
+                                <audio 
+                                    controls 
+                                    className="media-player audio-player"
+                                    src={activeIncident.audio_url}
+                                >
+                                    Your browser does not support audio playback.
+                                </audio>
+                            ) : (
+                                <div className="media-content" style={{ color: 'var(--muted)', fontStyle: 'italic', fontSize: '0.7rem' }}>
+                                    No voice recording attached
+                                </div>
+                            )}
+                        </div>
+
+                        {/* VIDEO PLAYER - Always show section */}
+                        <div className="media-section">
+                            <div className="media-label">📹 Video Evidence</div>
+                            {activeIncident.video_url ? (
+                                <video 
+                                    controls 
+                                    className="media-player video-player"
+                                    src={activeIncident.video_url}
+                                    poster=""
+                                >
+                                    Your browser does not support video playback.
+                                </video>
+                            ) : (
+                                <div className="media-content" style={{ color: 'var(--muted)', fontStyle: 'italic', fontSize: '0.7rem' }}>
+                                    No video attached
+                                </div>
+                            )}
+                        </div>
+
+                        {/* MEDIA INDICATORS */}
+                        <div className="media-badges">
+                            {activeIncident.audio_url && <span className="media-badge">🎤 Audio</span>}
+                            {activeIncident.video_url && <span className="media-badge">📹 Video</span>}
+                            {activeIncident.voice_transcript && <span className="media-badge">📝 Transcript</span>}
                         </div>
                     </div>
                 ) : (

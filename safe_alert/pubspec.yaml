@@ -31,6 +31,10 @@ dependencies:
   sensors_plus: ^5.0.1
   camera: ^0.11.0+2
 
+dependency_overrides:
+  # Force latest app_links version which has compileSdk fix
+  app_links: 7.0.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -32,12 +32,12 @@ class SupabaseService {
   }
 
   /// Insert an SOS incident directly into Supabase (fallback when AI backend is unreachable).
+  /// Note: created_at is NOT sent - database will use its default (server time)
   Future<Incident> insertIncident({
     required double lat,
     required double lng,
     required String message,
     required String severity,
-    required String timestamp,
     String? emergencyType,
     String? agency,
     String? userName,
@@ -47,13 +47,13 @@ class SupabaseService {
     String? bloodGroup,
     String? medicalConditions,
   }) async {
+    // Don't send created_at - let database use server timestamp
     final data = <String, dynamic>{
       'lat': lat,
       'lng': lng,
       'message': message,
       'severity': severity,
       'status': 'active',
-      'created_at': timestamp,
     };
     // Add optional fields (new columns) - will be ignored if DB hasn't been migrated yet
     if (emergencyType != null) data['emergency_type'] = emergencyType;
@@ -77,13 +77,13 @@ class SupabaseService {
       return Incident.fromJson(response);
     } catch (e) {
       // If new columns don't exist yet, retry with minimal data
+      // Don't send created_at - let database use server timestamp
       final minData = {
         'lat': lat,
         'lng': lng,
         'message': message,
         'severity': severity,
         'status': 'active',
-        'created_at': timestamp,
       };
       final response =
           await _client.from('incidents').insert(minData).select().single();

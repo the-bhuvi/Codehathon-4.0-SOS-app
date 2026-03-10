@@ -31,12 +31,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   // Background shake service status
   bool _shakeServiceRunning = false;
 
-  // SOS hold-to-activate
+  // SOS hold-to-activate (for center SOS button)
   bool _isHolding = false;
   double _holdProgress = 0.0;
   Timer? _holdTimer;
   static const int _holdDurationMs = 1000;
   static const int _holdTickMs = 20;
+
+  // Emergency tile hold-to-activate (for each tile)
+  String? _holdingTileType;
+  double _tileHoldProgress = 0.0;
+  Timer? _tileHoldTimer;
 
   // Emergency type definitions — 4 large tiles
   static const List<Map<String, dynamic>> _emergencyTiles = [
@@ -85,13 +90,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   void dispose() {
     _recordingTimer?.cancel();
     _holdTimer?.cancel();
+    _tileHoldTimer?.cancel();
     _audioRecorder.dispose();
     super.dispose();
   }
 
   Color get _sosColor {
-    final match = _emergencyTiles.where((t) => t['type'] == _selectedEmergencyType);
-    if (match.isNotEmpty) return match.first['color'] as Color;
+    // Center SOS button is always red (general emergency)
     return AppTheme.accentRed;
   }
 
@@ -120,19 +125,64 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     });
   }
 
+  // Emergency tile hold methods
+  void _startTileHold(String tileType) {
+    setState(() {
+      _holdingTileType = tileType;
+      _tileHoldProgress = 0.0;
+    });
+    _tileHoldTimer = Timer.periodic(Duration(milliseconds: _holdTickMs), (timer) {
+      setState(() {
+        _tileHoldProgress += _holdTickMs / _holdDurationMs;
+      });
+      if (_tileHoldProgress >= 1.0) {
+        _tileHoldTimer?.cancel();
+        _tileHoldProgress = 1.0;
+        _onTileSOSActivated(tileType);
+      }
+    });
+  }
+
+  void _cancelTileHold() {
+    _tileHoldTimer?.cancel();
+    setState(() {
+      _holdingTileType = null;
+      _tileHoldProgress = 0.0;
+    });
+  }
+
+  void _onTileSOSActivated(String emergencyType) {
+    setState(() {
+      _holdingTileType = null;
+      _tileHoldProgress = 0.0;
+    });
+
+    // Send SOS with specific emergency type, include audio path if recorded
+    final typeLabel = emergencyType.toUpperCase();
+    ref.read(sosProvider.notifier).sendSOS(
+      '[$typeLabel] Emergency alert triggered!',
+      emergencyType: emergencyType,
+      audioFilePath: _audioPath,
+    );
+
+    if (mounted) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const ConfirmationScreen()),
+      );
+    }
+  }
+
   void _onSOSActivated() {
     setState(() {
       _isHolding = false;
       _holdProgress = 0.0;
     });
 
-    // Send SOS with selected emergency type, include audio path if recorded
-    final typeLabel = _selectedEmergencyType != 'general'
-        ? _selectedEmergencyType.toUpperCase()
-        : 'SOS';
+    // Send general SOS (center button always sends general alert)
     ref.read(sosProvider.notifier).sendSOS(
-      '[$typeLabel] Emergency alert triggered!',
-      emergencyType: _selectedEmergencyType,
+      '[SOS] General emergency alert triggered!',
+      emergencyType: 'general',
       audioFilePath: _audioPath,
     );
 
@@ -146,32 +196,70 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   Future<void> _toggleRecording() async {
     if (_isRecording) {
-      final path = await _audioRecorder.stop();
-      _recordingTimer?.cancel();
-      setState(() {
-        _isRecording = false;
-        _audioPath = path;
-        _recordingSeconds = 0;
-      });
+      try {
+        final path = await _audioRecorder.stop();
+        _recordingTimer?.cancel();
+        setState(() {
+          _isRecording = false;
+          _audioPath = path;
+          _recordingSeconds = 0;
+        });
+      } catch (e) {
+        _recordingTimer?.cancel();
+        setState(() {
+          _isRecording = false;
+          _recordingSeconds = 0;
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Failed to stop recording'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
     } else {
       final hasPermission = await _audioRecorder.hasPermission();
-      if (!hasPermission) return;
+      if (!hasPermission) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Microphone permission required for voice recording'),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+        return;
+      }
 
-      final dir = await getTemporaryDirectory();
-      final path =
-          '${dir.path}/sos_voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
-      await _audioRecorder.start(
-        const RecordConfig(encoder: AudioEncoder.aacLc, bitRate: 128000),
-        path: path,
-      );
-      setState(() {
-        _isRecording = true;
-        _recordingSeconds = 0;
-      });
-      _recordingTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-        setState(() => _recordingSeconds++);
-        if (_recordingSeconds >= 20) _toggleRecording();
-      });
+      try {
+        final dir = await getTemporaryDirectory();
+        final path =
+            '${dir.path}/sos_voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
+        await _audioRecorder.start(
+          const RecordConfig(encoder: AudioEncoder.aacLc, bitRate: 128000),
+          path: path,
+        );
+        setState(() {
+          _isRecording = true;
+          _recordingSeconds = 0;
+        });
+        _recordingTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+          setState(() => _recordingSeconds++);
+          if (_recordingSeconds >= 20) _toggleRecording();
+        });
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Failed to start recording'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
     }
   }
 
@@ -369,72 +457,89 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final label = tile['label'] as String;
     final color = tile['color'] as Color;
     final gradientColors = tile['gradient'] as List<Color>;
-    final isSelected = _selectedEmergencyType == type;
+    final isHolding = _holdingTileType == type;
+    final holdProgress = isHolding ? _tileHoldProgress : 0.0;
 
     return Expanded(
       child: GestureDetector(
-        onTap: () {
-          setState(() {
-            _selectedEmergencyType =
-                _selectedEmergencyType == type ? 'general' : type;
-          });
-        },
+        onLongPressStart: (_) => _startTileHold(type),
+        onLongPressEnd: (_) => _cancelTileHold(),
+        onLongPressCancel: _cancelTileHold,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 250),
           curve: Curves.easeOut,
           decoration: BoxDecoration(
-            gradient: isSelected
+            gradient: isHolding
                 ? LinearGradient(
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                     colors: gradientColors
-                        .map((c) => c.withOpacity(0.35))
+                        .map((c) => c.withOpacity(0.5))
                         .toList(),
                   )
                 : null,
-            color: isSelected ? null : AppTheme.cardDark.withOpacity(0.7),
+            color: isHolding ? null : AppTheme.cardDark.withOpacity(0.7),
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
-              color: isSelected ? color : Colors.white.withOpacity(0.06),
-              width: isSelected ? 2.5 : 1,
+              color: isHolding ? color : Colors.white.withOpacity(0.06),
+              width: isHolding ? 3.0 : 1,
             ),
-            boxShadow: isSelected
+            boxShadow: isHolding
                 ? [
                     BoxShadow(
-                      color: color.withOpacity(0.3),
-                      blurRadius: 16,
-                      spreadRadius: 1,
+                      color: color.withOpacity(0.5),
+                      blurRadius: 20,
+                      spreadRadius: 2,
                     )
                   ]
                 : [],
           ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+          child: Stack(
             children: [
-              Icon(icon, color: color, size: 40),
-              const SizedBox(height: 10),
-              Text(
-                label,
-                style: TextStyle(
-                  color: isSelected ? Colors.white : AppTheme.textSecondary,
-                  fontSize: 16,
-                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                  letterSpacing: 0.5,
-                ),
-              ),
-              if (isSelected)
-                Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Text(
-                    'SELECTED',
-                    style: TextStyle(
-                      color: color.withOpacity(0.8),
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 2,
+              // Hold progress indicator (circular around the tile)
+              if (isHolding)
+                Positioned.fill(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: color.withOpacity(0.8),
+                        width: 4.0 * holdProgress,
+                      ),
                     ),
                   ),
                 ),
+              // Main content
+              Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(icon, color: color, size: 40),
+                    const SizedBox(height: 10),
+                    Text(
+                      label,
+                      style: TextStyle(
+                        color: isHolding ? Colors.white : AppTheme.textSecondary,
+                        fontSize: 16,
+                        fontWeight: isHolding ? FontWeight.bold : FontWeight.w500,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      isHolding ? 'SENDING...' : 'HOLD 1s',
+                      style: TextStyle(
+                        color: isHolding
+                            ? color.withOpacity(0.9)
+                            : AppTheme.textSecondary.withOpacity(0.5),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 2,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
         ),

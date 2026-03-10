@@ -203,8 +203,9 @@ async def process_sos_alert(request: SOSRequest):
         emergency_type = request.emergency_type or "general"
         agency = determine_agency(emergency_type, computed_severity)
 
-        # 6. Prepare database payload
-        created_at = request.timestamp if request.timestamp else datetime.datetime.now(datetime.timezone.utc).isoformat()
+        # 6. Prepare database payload - let database generate timestamp for accuracy
+        # Don't trust client timestamp - use server time
+        created_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
         incident_data = {
             "message": english_message,

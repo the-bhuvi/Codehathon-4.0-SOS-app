@@ -179,9 +179,9 @@ class SOSNotifier extends StateNotifier<SOSState> {
           sentAt: DateTime.now(),
         );
       } on SOSOfflineException {
-        incident = await _fallbackSupabaseInsert(lat, lng, effectiveMessage, timestamp, emergencyType, agency, profile);
+        incident = await _fallbackSupabaseInsert(lat, lng, effectiveMessage, emergencyType, agency, profile);
       } on SOSApiException {
-        incident = await _fallbackSupabaseInsert(lat, lng, effectiveMessage, timestamp, emergencyType, agency, profile);
+        incident = await _fallbackSupabaseInsert(lat, lng, effectiveMessage, emergencyType, agency, profile);
       }
 
       // Send SMS in background (non-blocking) if auto-SMS is enabled
@@ -217,12 +217,12 @@ class SOSNotifier extends StateNotifier<SOSState> {
   }
 
   /// Fallback: insert directly into Supabase when API is unreachable
-  Future<Incident?> _fallbackSupabaseInsert(double lat, double lng, String message, String timestamp, String emergencyType, String agency, UserProfile profile) async {
+  Future<Incident?> _fallbackSupabaseInsert(double lat, double lng, String message, String emergencyType, String agency, UserProfile profile) async {
     try {
       final severity = SupabaseService.classifySeverity(message);
       final incident = await _supabaseService.insertIncident(
         lat: lat, lng: lng, message: message, severity: severity,
-        timestamp: timestamp, emergencyType: emergencyType, agency: agency,
+        emergencyType: emergencyType, agency: agency,
         userName: profile.fullName, userPhone: profile.phone,
         emergencyContactName: profile.emergencyContactName,
         emergencyContactPhone: profile.emergencyContactPhone,
@@ -236,6 +236,7 @@ class SOSNotifier extends StateNotifier<SOSState> {
       );
       return incident;
     } catch (supabaseError) {
+      final timestamp = DateTime.now().toUtc().toIso8601String();
       final request = SOSRequest(
         message: message, latitude: lat, longitude: lng, timestamp: timestamp,
         emergencyType: emergencyType, userName: profile.fullName, userPhone: profile.phone,

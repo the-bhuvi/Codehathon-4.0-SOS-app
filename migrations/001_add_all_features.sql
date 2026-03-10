@@ -38,6 +38,8 @@ CREATE TABLE IF NOT EXISTS public.user_profiles (
 
 ALTER TABLE public.user_profiles ENABLE ROW LEVEL SECURITY;
 
+-- Drop existing policy if exists, then create
+DROP POLICY IF EXISTS "profiles_all" ON public.user_profiles;
 CREATE POLICY "profiles_all" ON public.user_profiles
     FOR ALL USING (true) WITH CHECK (true);
 
@@ -64,9 +66,12 @@ INSERT INTO storage.buckets (id, name, public)
 VALUES ('sos-media', 'sos-media', true)
 ON CONFLICT (id) DO NOTHING;
 
+-- Drop existing policies if exist, then create
+DROP POLICY IF EXISTS "Allow public uploads" ON storage.objects;
 CREATE POLICY "Allow public uploads" ON storage.objects
     FOR INSERT WITH CHECK (bucket_id = 'sos-media');
 
+DROP POLICY IF EXISTS "Allow public reads" ON storage.objects;
 CREATE POLICY "Allow public reads" ON storage.objects
     FOR SELECT USING (bucket_id = 'sos-media');
 
