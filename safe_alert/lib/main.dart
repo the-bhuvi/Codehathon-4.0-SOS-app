@@ -11,10 +11,18 @@ import 'package:safe_alert/providers/app_providers.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Credentials are injected at build time via --dart-define.
+  // Run with:  flutter run --dart-define=SUPABASE_URL=https://... --dart-define=SUPABASE_ANON_KEY=sb_...
+  // Or create a dart_defines/app.env file and use:  flutter run --dart-define-from-file=dart_defines/app.env
+  const supabaseUrl = String.fromEnvironment('SUPABASE_URL');
+  const supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
+
+  assert(supabaseUrl.isNotEmpty, 'SUPABASE_URL is not set. Pass it via --dart-define=SUPABASE_URL=...');
+  assert(supabaseAnonKey.isNotEmpty, 'SUPABASE_ANON_KEY is not set. Pass it via --dart-define=SUPABASE_ANON_KEY=...');
+
   await Supabase.initialize(
-    url: 'https://zzatwehdudhztqyblrpa.supabase.co',
-    anonKey:
-        'sb_publishable_xy8Or3ZuTtJOXazeSvwqdw_hnp3yui7',
+    url: supabaseUrl,
+    anonKey: supabaseAnonKey,
   );
 
   // Load saved server URL and apply to ApiService on startup
