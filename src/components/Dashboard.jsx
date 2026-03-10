@@ -48,12 +48,8 @@ const Dashboard = () => {
 
             if (error) throw error;
 
-            // If table doesn't exist or is empty, provide mock data for the demo
-            if (!data || data.length === 0) {
-                setIncidents(getMockIncidents());
-            } else {
-                setIncidents(data);
-            }
+            // Always use real Supabase data — only show mocks if DB is unreachable
+            setIncidents(data || []);
         } catch (error) {
             console.error('Error fetching incidents:', error);
             setError('Could not connect to database. Showing demo data.');
@@ -70,14 +66,17 @@ const Dashboard = () => {
                 inc.id === id ? { ...inc, status: 'resolved' } : inc
             ));
 
+            // Skip DB call for mock incidents (they don't have real UUID ids)
+            const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+            if (!isUUID) return;
+
             const { error } = await supabase
                 .from('incidents')
                 .update({ status: 'resolved' })
                 .eq('id', id);
 
             if (error) {
-                console.warn('Could not update in DB, restoring state...', error);
-                // We could revert optimistic update here if needed in a real app
+                console.warn('Could not update in DB:', error);
             }
         } catch (err) {
             console.error('Attempt to resolve failed', err);
@@ -128,40 +127,40 @@ export default Dashboard;
 function getMockIncidents() {
     return [
         {
-            id: '1',
+            id: 'mock-0001-0000-0000-000000000001',
             lat: 40.7128,
             lng: -74.0060,
             severity: 'HIGH',
             message: 'Medical emergency at Central Park. Need ambulance immediately.',
             status: 'active',
-            created_at: new Date(Date.now() - 1000 * 60 * 5).toISOString() // 5 mins ago
+            created_at: new Date(Date.now() - 1000 * 60 * 5).toISOString()
         },
         {
-            id: '2',
+            id: 'mock-0002-0000-0000-000000000002',
             lat: 40.7580,
             lng: -73.9855,
             severity: 'MEDIUM',
             message: 'Suspicious activity reported near Times Square station.',
             status: 'active',
-            created_at: new Date(Date.now() - 1000 * 60 * 15).toISOString() // 15 mins ago
+            created_at: new Date(Date.now() - 1000 * 60 * 15).toISOString()
         },
         {
-            id: '3',
+            id: 'mock-0003-0000-0000-000000000003',
             lat: 40.7829,
             lng: -73.9654,
             severity: 'LOW',
             message: 'Noise complaint, possible minor dispute.',
             status: 'resolved',
-            created_at: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString() // 2 hours ago
+            created_at: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString()
         },
         {
-            id: '4',
+            id: 'mock-0004-0000-0000-000000000004',
             lat: 40.7306,
             lng: -73.9352,
             severity: 'HIGH',
             message: 'Fire reported in residential building. Evacuation in progress.',
             status: 'active',
-            created_at: new Date(Date.now() - 1000 * 60).toISOString() // 1 min ago
+            created_at: new Date(Date.now() - 1000 * 60).toISOString()
         }
     ];
 }
