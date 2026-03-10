@@ -7,25 +7,26 @@ import 'package:safe_alert/screens/home/home_screen.dart';
 import 'package:safe_alert/screens/history/history_screen.dart';
 import 'package:safe_alert/screens/settings/settings_screen.dart';
 import 'package:safe_alert/providers/app_providers.dart';
+import 'package:safe_alert/services/sms_service.dart';
+import 'package:safe_alert/services/shake_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Credentials are injected at build time via --dart-define.
-  // Run with:  flutter run --dart-define=SUPABASE_URL=https://... --dart-define=SUPABASE_ANON_KEY=sb_...
-  // Or create a dart_defines/app.env file and use:  flutter run --dart-define-from-file=dart_defines/app.env
-  const supabaseUrl = String.fromEnvironment('SUPABASE_URL');
-  const supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
-
-  assert(supabaseUrl.isNotEmpty, 'SUPABASE_URL is not set. Pass it via --dart-define=SUPABASE_URL=...');
-  assert(supabaseAnonKey.isNotEmpty, 'SUPABASE_ANON_KEY is not set. Pass it via --dart-define=SUPABASE_ANON_KEY=...');
+  const supabaseUrl = String.fromEnvironment(
+    'SUPABASE_URL',
+    defaultValue: 'https://zzatwehdudhztqyblrpa.supabase.co',
+  );
+  const supabaseAnonKey = String.fromEnvironment(
+    'SUPABASE_ANON_KEY',
+    defaultValue: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp6YXR3ZWhkdWRoenRxeWJscnBhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMxMTg1MjUsImV4cCI6MjA4ODY5NDUyNX0.j8MedoZykf7QMaMUKzLBcIJILY8C7tx2uceboZDBeVk',
+  );
 
   await Supabase.initialize(
     url: supabaseUrl,
     anonKey: supabaseAnonKey,
   );
 
-  // Load saved server URL and apply to ApiService on startup
   final prefs = await SharedPreferences.getInstance();
   final savedUrl = prefs.getString('server_url');
 
@@ -44,20 +45,78 @@ class SafeAlertApp extends ConsumerStatefulWidget {
 }
 
 class _SafeAlertAppState extends ConsumerState<SafeAlertApp> {
+  final _navigatorKey = GlobalKey<NavigatorState>();
+
   @override
   void initState() {
     super.initState();
-    // Apply saved server URL to ApiService on startup
     if (widget.savedServerUrl != null && widget.savedServerUrl!.isNotEmpty) {
       Future.microtask(() {
         ref.read(apiServiceProvider).updateBaseUrl(widget.savedServerUrl!);
       });
     }
+    Future.microtask(() => SmsService.requestPermission());
+    Future.microtask(() => _initShakeService());
+  }
+
+  Future<void> _initShakeService() async {
+    final storage = ref.read(storageServiceProvider);
+    final enabled = await storage.getShakePanicEnabled();
+
+    // Set up listener for shake triggers from native service
+    ShakeBackgroundService.setOnShakeTriggered(() {
+      _handleShakeTrigger();
+    });
+
+    if (!enabled) return;
+
+    // Request location permission before starting foreground service (required on Android 14+)
+    final locationService = ref.read(locationServiceProvider);
+    final hasLocationPermission = await locationService.requestPermission();
+    if (!hasLocationPermission) {
+      debugPrint('Location permission denied, cannot start shake service');
+      return;
+    }
+
+    final alreadyRunning = await ShakeBackgroundService.isRunning();
+    if (alreadyRunning) {
+      // Check if app was launched by a shake trigger
+      final pending = await ShakeBackgroundService.checkPendingTrigger();
+      if (pending) {
+        _handleShakeTrigger();
+      }
+      return;
+    }
+
+    const supabaseUrl = String.fromEnvironment(
+      'SUPABASE_URL',
+      defaultValue: 'https://zzatwehdudhztqyblrpa.supabase.co',
+    );
+    const supabaseKey = String.fromEnvironment(
+      'SUPABASE_ANON_KEY',
+      defaultValue: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp6YXR3ZWhkdWRoenRxeWJscnBhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMxMTg1MjUsImV4cCI6MjA4ODY5NDUyNX0.j8MedoZykf7QMaMUKzLBcIJILY8C7tx2uceboZDBeVk',
+    );
+
+    await ShakeBackgroundService.start(
+      supabaseUrl: supabaseUrl,
+      supabaseKey: supabaseKey,
+    );
+  }
+
+  void _handleShakeTrigger() {
+    // Auto-trigger SOS immediately — no confirmation needed
+    Future.delayed(const Duration(milliseconds: 500), () {
+      ref.read(sosProvider.notifier).sendSOS(
+        'PANIC ALERT - Shake triggered!',
+        emergencyType: 'panic',
+      );
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: _navigatorKey,
       title: 'SafeAlert',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,

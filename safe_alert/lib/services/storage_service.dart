@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:safe_alert/models/emergency_contact.dart';
+import 'package:safe_alert/models/user_profile.dart';
 
 class StorageService {
   static const String _contactsKey = 'emergency_contacts';
@@ -12,6 +13,30 @@ class StorageService {
   static const String _offlineQueueKey = 'offline_sos_queue';
 
   Future<SharedPreferences> get _prefs => SharedPreferences.getInstance();
+
+  // User Profile (Feature 4)
+  Future<UserProfile> getUserProfile() async {
+    final prefs = await _prefs;
+    return UserProfile(
+      fullName: prefs.getString('user_full_name') ?? prefs.getString(_userNameKey) ?? '',
+      phone: prefs.getString('user_phone') ?? '',
+      emergencyContactName: prefs.getString('emergency_contact_name') ?? '',
+      emergencyContactPhone: prefs.getString('emergency_contact_phone') ?? '',
+      bloodGroup: prefs.getString('blood_group') ?? '',
+      medicalConditions: prefs.getString('medical_conditions') ?? '',
+    );
+  }
+
+  Future<void> saveUserProfile(UserProfile profile) async {
+    final prefs = await _prefs;
+    await prefs.setString('user_full_name', profile.fullName);
+    await prefs.setString('user_phone', profile.phone);
+    await prefs.setString('emergency_contact_name', profile.emergencyContactName);
+    await prefs.setString('emergency_contact_phone', profile.emergencyContactPhone);
+    await prefs.setString('blood_group', profile.bloodGroup);
+    await prefs.setString('medical_conditions', profile.medicalConditions);
+    await prefs.setString(_userNameKey, profile.fullName);
+  }
 
   // Emergency Contacts
   Future<List<EmergencyContact>> getContacts() async {
@@ -43,12 +68,13 @@ class StorageService {
   // User Settings
   Future<String> getUserName() async {
     final prefs = await _prefs;
-    return prefs.getString(_userNameKey) ?? 'User';
+    return prefs.getString('user_full_name') ?? prefs.getString(_userNameKey) ?? 'User';
   }
 
   Future<void> setUserName(String name) async {
     final prefs = await _prefs;
     await prefs.setString(_userNameKey, name);
+    await prefs.setString('user_full_name', name);
   }
 
   Future<String> getServerUrl() async {
@@ -89,6 +115,47 @@ class StorageService {
   Future<void> setDeviceId(String id) async {
     final prefs = await _prefs;
     await prefs.setString(_deviceIdKey, id);
+  }
+
+  // Panic mode settings (Feature 5 & 6)
+  Future<bool> getShakePanicEnabled() async {
+    final prefs = await _prefs;
+    return prefs.getBool('shake_panic_enabled') ?? true;
+  }
+
+  Future<void> setShakePanicEnabled(bool val) async {
+    final prefs = await _prefs;
+    await prefs.setBool('shake_panic_enabled', val);
+  }
+
+  Future<double> getShakeThreshold() async {
+    final prefs = await _prefs;
+    return prefs.getDouble('shake_threshold') ?? 12.0;
+  }
+
+  Future<void> setShakeThreshold(double val) async {
+    final prefs = await _prefs;
+    await prefs.setDouble('shake_threshold', val);
+  }
+
+  Future<int> getShakeCount() async {
+    final prefs = await _prefs;
+    return prefs.getInt('shake_count') ?? 3;
+  }
+
+  Future<void> setShakeCount(int val) async {
+    final prefs = await _prefs;
+    await prefs.setInt('shake_count', val);
+  }
+
+  Future<bool> getAutoRecordEnabled() async {
+    final prefs = await _prefs;
+    return prefs.getBool('auto_record_enabled') ?? false;
+  }
+
+  Future<void> setAutoRecordEnabled(bool val) async {
+    final prefs = await _prefs;
+    await prefs.setBool('auto_record_enabled', val);
   }
 
   // Offline Queue
