@@ -1,14 +1,19 @@
 import React, { useState, useEffect } from 'react';
+import ThemeToggle from './ThemeToggle';
 
 const TopBar = ({ stats }) => {
-    const [time, setTime] = useState(new Date().toLocaleTimeString('en-IN', { hour12: false }));
+    const [currentTime, setCurrentTime] = useState(new Date());
 
     useEffect(() => {
         const timer = setInterval(() => {
-            setTime(new Date().toLocaleTimeString('en-IN', { hour12: false }));
+            setCurrentTime(new Date());
         }, 1000);
+        
         return () => clearInterval(timer);
     }, []);
+
+    const timeString = currentTime.toLocaleTimeString('en-IN', { hour12: false });
+    const dateString = currentTime.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 
     return (
         <div className="topbar">
@@ -52,7 +57,12 @@ const TopBar = ({ stats }) => {
                 All systems operational
             </div>
 
-            <div className="clock">{time}</div>
+            <div className="clock">
+                <div className="clock-time">{timeString}</div>
+                <div className="clock-date">{dateString}</div>
+            </div>
+
+            <ThemeToggle />
         </div>
     );
 };

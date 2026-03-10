@@ -1,6 +1,9 @@
 @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Share+Tech+Mono&family=Barlow:wght@300;400;500;600&display=swap');
 
-:root {
+/* ══════════════════════════════════════════════
+   DARK THEME (Default)
+   ══════════════════════════════════════════════ */
+:root, [data-theme="dark"] {
   --bg: #050709;
   --surface: #090C10;
   --s2: #0D1118;
@@ -19,6 +22,54 @@
   --mono: 'Share Tech Mono', monospace;
   --display: 'Orbitron', sans-serif;
   --body: 'Barlow', sans-serif;
+
+  /* Theme-specific */
+  --card-bg: rgba(255,255,255,0.03);
+  --card-hover: rgba(255,255,255,0.06);
+  --shadow: rgba(0,0,0,0.5);
+  --scanline-opacity: 0.03;
+  --map-filter: brightness(0.6) invert(1) contrast(3) hue-rotate(200deg) saturate(0.3) brightness(0.7);
+  --logo-glow: drop-shadow(0 0 10px rgba(255,45,45,0.5));
+
+  /* Legacy compatibility */
+  --bg-color: var(--bg);
+  --panel-bg: var(--surface);
+  --text-primary: var(--text);
+  --text-secondary: var(--muted);
+  --border-color: var(--border);
+  --severity-high: var(--red);
+  --severity-medium: var(--amber);
+  --severity-low: var(--green);
+  --status-resolved: var(--green);
+}
+
+/* ══════════════════════════════════════════════
+   LIGHT THEME
+   ══════════════════════════════════════════════ */
+[data-theme="light"] {
+  --bg: #F0F2F5;
+  --surface: #FFFFFF;
+  --s2: #F8F9FA;
+  --s3: #E9ECEF;
+  --border: rgba(0,0,0,0.08);
+  --red: #DC2626;
+  --red2: rgba(220,38,38,0.1);
+  --amber: #D97706;
+  --amber2: rgba(217,119,6,0.1);
+  --green: #059669;
+  --green2: rgba(5,150,105,0.1);
+  --blue: #0284C7;
+  --blue2: rgba(2,132,199,0.1);
+  --text: #1F2937;
+  --muted: rgba(31,41,55,0.5);
+
+  /* Theme-specific */
+  --card-bg: rgba(0,0,0,0.02);
+  --card-hover: rgba(0,0,0,0.04);
+  --shadow: rgba(0,0,0,0.1);
+  --scanline-opacity: 0.01;
+  --map-filter: none;
+  --logo-glow: drop-shadow(0 0 8px rgba(220,38,38,0.3));
 
   /* Legacy compatibility */
   --bg-color: var(--bg);
@@ -50,9 +101,45 @@ body::after {
   content: '';
   position: fixed;
   inset: 0;
-  background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+  background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,var(--scanline-opacity)) 2px, rgba(0,0,0,var(--scanline-opacity)) 4px);
   pointer-events: none;
   z-index: 9999;
+}
+
+/* ── THEME TOGGLE ── */
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 100px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all 0.3s ease;
+  margin-left: 1rem;
+}
+
+.theme-toggle:hover {
+  background: var(--card-hover);
+  border-color: var(--blue);
+}
+
+.theme-toggle-icon {
+  font-size: 1rem;
+  transition: transform 0.3s ease;
+}
+
+.theme-toggle:hover .theme-toggle-icon {
+  transform: rotate(20deg);
+}
+
+.theme-toggle-label {
+  font-family: var(--mono);
+  font-size: 0.55rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
 
 /* ── TOPBAR ── */
@@ -133,12 +220,26 @@ body::after {
 
 .clock {
   font-family: var(--mono);
-  font-size: 0.85rem;
-  color: var(--muted);
-  letter-spacing: 0.08em;
   margin-left: 1.5rem;
   padding-left: 1.5rem;
   border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.clock-time {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.1em;
+}
+
+.clock-date {
+  font-size: 0.55rem;
+  color: var(--muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .sys-status {
@@ -894,9 +995,57 @@ body::after {
   100% { transform: rotate(360deg); }
 }
 
-/* ── MAP TILES (dark style) ── */
+/* ── MAP TILES (theme-aware) ── */
 .map-tiles {
-  filter: brightness(0.6) invert(1) contrast(3) hue-rotate(200deg) saturate(0.3) brightness(0.7);
+  filter: var(--map-filter);
+}
+
+/* Light theme specific map adjustments */
+[data-theme="light"] .map-area::before {
+  background-image:
+    linear-gradient(rgba(2,132,199,0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(2,132,199,0.06) 1px, transparent 1px);
+}
+
+[data-theme="light"] .map-scan {
+  background: linear-gradient(to bottom,
+    transparent 0%,
+    rgba(2,132,199,0.04) 49%,
+    rgba(2,132,199,0.08) 50%,
+    rgba(2,132,199,0.04) 51%,
+    transparent 100%);
+}
+
+[data-theme="light"] .map-coords,
+[data-theme="light"] .map-legend {
+  background: rgba(255,255,255,0.95);
+  box-shadow: 0 2px 8px var(--shadow);
+}
+
+[data-theme="light"] .topbar::after {
+  background: linear-gradient(90deg, transparent, var(--red), transparent);
+  opacity: 0.3;
+}
+
+[data-theme="light"] .logo {
+  filter: var(--logo-glow);
+}
+
+[data-theme="light"] .panel {
+  box-shadow: 2px 0 8px var(--shadow);
+}
+
+[data-theme="light"] .right-panel {
+  box-shadow: -2px 0 8px var(--shadow);
+}
+
+[data-theme="light"] .ai-output {
+  background: rgba(2,132,199,0.05);
+  border-color: rgba(2,132,199,0.2);
+}
+
+[data-theme="light"] .incident-card:hover {
+  box-shadow: 0 4px 12px var(--shadow);
 }
 
 /* ── LEAFLET CUSTOMIZATION ── */
