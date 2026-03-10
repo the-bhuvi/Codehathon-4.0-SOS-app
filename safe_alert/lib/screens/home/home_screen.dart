@@ -1,9 +1,9 @@
 import 'dart:async';
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:camera/camera.dart';
 import 'package:safe_alert/providers/app_providers.dart';
 import 'package:safe_alert/theme/app_theme.dart';
 import 'package:safe_alert/widgets/status_badge.dart';
@@ -19,7 +19,6 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen>
     with TickerProviderStateMixin {
-  String _selectedEmergencyType = 'general';
 
   // Voice recording
   final AudioRecorder _audioRecorder = AudioRecorder();
@@ -27,6 +26,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   String? _audioPath;
   int _recordingSeconds = 0;
   Timer? _recordingTimer;
+
+  // Video recording
+  CameraController? _cameraController;
+  bool _isVideoRecording = false;
+  String? _videoPath;
+  int _videoRecordingSeconds = 0;
+  Timer? _videoRecordingTimer;
+  bool _cameraInitializing = false;
 
   // Background shake service status
   bool _shakeServiceRunning = false;
@@ -89,9 +96,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   @override
   void dispose() {
     _recordingTimer?.cancel();
+    _videoRecordingTimer?.cancel();
     _holdTimer?.cancel();
     _tileHoldTimer?.cancel();
     _audioRecorder.dispose();
+    _cameraController?.dispose();
     super.dispose();
   }
 
@@ -157,12 +166,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       _tileHoldProgress = 0.0;
     });
 
-    // Send SOS with specific emergency type, include audio path if recorded
+    // Send SOS with specific emergency type, include audio and video paths if recorded
     final typeLabel = emergencyType.toUpperCase();
     ref.read(sosProvider.notifier).sendSOS(
       '[$typeLabel] Emergency alert triggered!',
       emergencyType: emergencyType,
       audioFilePath: _audioPath,
+      videoFilePath: _videoPath,
     );
 
     if (mounted) {
@@ -184,6 +194,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       '[SOS] General emergency alert triggered!',
       emergencyType: 'general',
       audioFilePath: _audioPath,
+      videoFilePath: _videoPath,
     );
 
     if (mounted) {
@@ -255,6 +266,104 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('Failed to start recording'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  Future<void> _toggleVideoRecording() async {
+    if (_isVideoRecording) {
+      // Stop recording
+      try {
+        if (_cameraController != null && _cameraController!.value.isRecordingVideo) {
+          final file = await _cameraController!.stopVideoRecording();
+          _videoRecordingTimer?.cancel();
+          setState(() {
+            _isVideoRecording = false;
+            _videoPath = file.path;
+            _videoRecordingSeconds = 0;
+          });
+          // Dispose camera to free resources
+          await _cameraController?.dispose();
+          _cameraController = null;
+        }
+      } catch (e) {
+        _videoRecordingTimer?.cancel();
+        setState(() {
+          _isVideoRecording = false;
+          _videoRecordingSeconds = 0;
+        });
+        await _cameraController?.dispose();
+        _cameraController = null;
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Failed to stop video recording'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } else {
+      // Start recording
+      setState(() => _cameraInitializing = true);
+      try {
+        final cameras = await availableCameras();
+        if (cameras.isEmpty) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('No camera available'),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          }
+          setState(() => _cameraInitializing = false);
+          return;
+        }
+
+        // Prefer back camera
+        final camera = cameras.firstWhere(
+          (c) => c.lensDirection == CameraLensDirection.back,
+          orElse: () => cameras.first,
+        );
+
+        _cameraController = CameraController(
+          camera,
+          ResolutionPreset.medium,
+          enableAudio: true,
+        );
+
+        await _cameraController!.initialize();
+
+        final dir = await getTemporaryDirectory();
+        final path = '${dir.path}/sos_video_${DateTime.now().millisecondsSinceEpoch}.mp4';
+
+        await _cameraController!.startVideoRecording();
+
+        setState(() {
+          _cameraInitializing = false;
+          _isVideoRecording = true;
+          _videoRecordingSeconds = 0;
+          _videoPath = path;
+        });
+
+        // Auto-stop after 30 seconds
+        _videoRecordingTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+          setState(() => _videoRecordingSeconds++);
+          if (_videoRecordingSeconds >= 30) _toggleVideoRecording();
+        });
+      } catch (e) {
+        setState(() => _cameraInitializing = false);
+        await _cameraController?.dispose();
+        _cameraController = null;
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to start video: ${e.toString().substring(0, 50)}'),
               backgroundColor: Colors.red,
             ),
           );
@@ -399,48 +508,110 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
             const SizedBox(height: 12),
 
-            // Voice recording bar
+            // Media recording buttons (Audio + Video)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: GestureDetector(
-                onTap: _toggleRecording,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: _isRecording
-                        ? Colors.red.withOpacity(0.15)
-                        : AppTheme.cardDark,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: _isRecording
-                          ? Colors.red
-                          : AppTheme.textSecondary.withOpacity(0.2),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        _isRecording ? Icons.stop_circle : Icons.mic,
-                        color: _isRecording ? Colors.red : AppTheme.textSecondary,
-                        size: 22,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        _isRecording
-                            ? 'Recording ${_recordingSeconds}s / 20s  ●'
-                            : (_audioPath != null
-                                ? '✓ Voice recorded – tap to re-record'
-                                : '🎤 Tap to record voice message'),
-                        style: TextStyle(
-                          color: _isRecording ? Colors.red : AppTheme.textSecondary,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
+              child: Row(
+                children: [
+                  // Voice recording button
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: _isVideoRecording ? null : _toggleRecording,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: _isRecording
+                              ? Colors.red.withOpacity(0.15)
+                              : (_isVideoRecording ? AppTheme.cardDark.withOpacity(0.5) : AppTheme.cardDark),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: _isRecording
+                                ? Colors.red
+                                : (_audioPath != null ? AppTheme.safeGreen.withOpacity(0.5) : AppTheme.textSecondary.withOpacity(0.2)),
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              _isRecording ? Icons.stop_circle : (_audioPath != null ? Icons.check_circle : Icons.mic),
+                              color: _isRecording ? Colors.red : (_audioPath != null ? AppTheme.safeGreen : AppTheme.textSecondary),
+                              size: 20,
+                            ),
+                            const SizedBox(width: 6),
+                            Flexible(
+                              child: Text(
+                                _isRecording
+                                    ? '${_recordingSeconds}s / 20s'
+                                    : (_audioPath != null ? 'Audio ✓' : 'Audio'),
+                                style: TextStyle(
+                                  color: _isRecording ? Colors.red : (_audioPath != null ? AppTheme.safeGreen : AppTheme.textSecondary),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    ],
+                    ),
                   ),
-                ),
+                  const SizedBox(width: 10),
+                  // Video recording button
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: (_isRecording || _cameraInitializing) ? null : _toggleVideoRecording,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: _isVideoRecording
+                              ? Colors.red.withOpacity(0.15)
+                              : (_isRecording ? AppTheme.cardDark.withOpacity(0.5) : AppTheme.cardDark),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: _isVideoRecording
+                                ? Colors.red
+                                : (_videoPath != null ? AppTheme.safeGreen.withOpacity(0.5) : AppTheme.textSecondary.withOpacity(0.2)),
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            if (_cameraInitializing)
+                              const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.textSecondary),
+                              )
+                            else
+                              Icon(
+                                _isVideoRecording ? Icons.stop_circle : (_videoPath != null ? Icons.check_circle : Icons.videocam),
+                                color: _isVideoRecording ? Colors.red : (_videoPath != null ? AppTheme.safeGreen : AppTheme.textSecondary),
+                                size: 20,
+                              ),
+                            const SizedBox(width: 6),
+                            Flexible(
+                              child: Text(
+                                _cameraInitializing
+                                    ? 'Starting...'
+                                    : (_isVideoRecording
+                                        ? '${_videoRecordingSeconds}s / 30s'
+                                        : (_videoPath != null ? 'Video ✓' : 'Video')),
+                                style: TextStyle(
+                                  color: _isVideoRecording ? Colors.red : (_videoPath != null ? AppTheme.safeGreen : AppTheme.textSecondary),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
 

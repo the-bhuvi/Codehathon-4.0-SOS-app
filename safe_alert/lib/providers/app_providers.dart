@@ -114,7 +114,7 @@ class SOSNotifier extends StateNotifier<SOSState> {
     _autoSendTimer = null;
   }
 
-  Future<void> sendSOS(String message, {String emergencyType = 'general', String? audioFilePath, bool captureCamera = false}) async {
+  Future<void> sendSOS(String message, {String emergencyType = 'general', String? audioFilePath, String? videoFilePath, bool captureCamera = false}) async {
     _autoSendTimer?.cancel();
     state = state.copyWith(status: SOSStatus.sending);
 
@@ -139,9 +139,9 @@ class SOSNotifier extends StateNotifier<SOSState> {
       String? audioUrl;
       String? videoUrl;
 
-      // Start camera capture if requested (shake-triggered)
+      // Start camera capture if requested (shake-triggered) and no video provided
       Future<String?>? cameraFuture;
-      if (captureCamera) {
+      if (captureCamera && (videoFilePath == null || videoFilePath.isEmpty)) {
         cameraFuture = _captureAndUploadPhoto();
       }
 
@@ -149,6 +149,12 @@ class SOSNotifier extends StateNotifier<SOSState> {
       Future<String?>? audioFuture;
       if (audioFilePath != null && audioFilePath.isNotEmpty) {
         audioFuture = _uploadMediaFile(audioFilePath, 'audio');
+      }
+
+      // Upload video recording if available
+      Future<String?>? videoFuture;
+      if (videoFilePath != null && videoFilePath.isNotEmpty) {
+        videoFuture = _uploadMediaFile(videoFilePath, 'video');
       }
 
       final request = SOSRequest(
@@ -193,7 +199,11 @@ class SOSNotifier extends StateNotifier<SOSState> {
       // Wait for media uploads and update incident record
       try {
         if (audioFuture != null) audioUrl = await audioFuture;
-        if (cameraFuture != null) videoUrl = await cameraFuture;
+        if (videoFuture != null) videoUrl = await videoFuture;
+        // Only use camera capture if no video was provided
+        if (videoUrl == null && cameraFuture != null) {
+          videoUrl = await cameraFuture;
+        }
 
         if (incident != null && (audioUrl != null || videoUrl != null)) {
           final updateData = <String, dynamic>{};
@@ -203,6 +213,7 @@ class SOSNotifier extends StateNotifier<SOSState> {
               .from('incidents')
               .update(updateData)
               .eq('id', incident.id);
+          debugPrint('Media uploaded - audio: $audioUrl, video: $videoUrl');
         }
       } catch (e) {
         debugPrint('Media upload/update error: $e');

@@ -34,12 +34,14 @@ class ShakeDetectionService : Service(), SensorEventListener {
         const val EXTRA_SUPABASE_URL = "supabase_url"
         const val EXTRA_SUPABASE_KEY = "supabase_key"
 
-        // Fixed shake detection parameters - requires strong intentional shakes
-        private const val SHAKE_THRESHOLD = 18.0f  // Higher threshold to ignore small vibrations
-        private const val SHAKES_NEEDED = 3
-        private const val SHAKE_WINDOW_MS = 2000L  // 3 shakes must happen within 2 seconds
+        // Shake detection parameters - uses net acceleration (gravity subtracted)
+        // Net force of 0 = stationary, 5-10 = walking, 15+ = vigorous shaking
+        private const val SHAKE_THRESHOLD = 15.0f  // Net acceleration threshold (after gravity subtracted)
+        private const val SHAKES_NEEDED = 4        // Require 4 distinct shakes to avoid accidental triggers
+        private const val SHAKE_WINDOW_MS = 2500L  // 4 shakes must happen within 2.5 seconds
         private const val TRIGGER_COOLDOWN_MS = 30000L  // 30s cooldown between triggers
-        private const val MIN_SHAKE_INTERVAL_MS = 300L  // 300ms debounce to require distinct shakes
+        private const val MIN_SHAKE_INTERVAL_MS = 400L  // 400ms debounce for distinct shake gestures
+        private const val GRAVITY = 9.81f  // Earth gravity constant for compensation
     }
 
     private var sensorManager: SensorManager? = null
@@ -82,12 +84,13 @@ class ShakeDetectionService : Service(), SensorEventListener {
             supabaseKey = prefs.getString("flutter.supabase_key", "") ?: ""
         }
 
-        // Read shake sensitivity setting (low=16, medium=18, high=22) - higher values = harder to trigger
+        // Read shake sensitivity setting - net force thresholds (gravity already subtracted)
+        // Net force: 0 = stationary, 3-8 = walking, 15+ = intentional shaking
         val sensitivity = prefs.getString("flutter.shake_sensitivity", "medium") ?: "medium"
         shakeThreshold = when (sensitivity) {
-            "low" -> 16.0f    // easier to trigger but still requires intentional shake
-            "high" -> 22.0f   // harder to trigger, requires very strong shakes
-            else -> 18.0f     // medium - good balance, ignores normal movement
+            "low" -> 12.0f    // easier to trigger, but still needs deliberate shaking
+            "high" -> 20.0f   // hard to trigger, requires very vigorous shaking
+            else -> 15.0f     // medium - balanced, ignores walking and normal handling
         }
 
         // Build stop action
@@ -144,10 +147,15 @@ class ShakeDetectionService : Service(), SensorEventListener {
         val y = event.values[1]
         val z = event.values[2]
 
-        // Calculate total force magnitude (includes gravity ~9.8)
-        val force = sqrt((x * x + y * y + z * z).toDouble()).toFloat()
+        // Calculate total force magnitude and subtract gravity to get net acceleration
+        // Standing still: force ≈ 9.8, so netForce ≈ 0
+        // Walking: force ≈ 12-15, netForce ≈ 2-5
+        // Vigorous shaking: force ≈ 30+, netForce ≈ 20+
+        val totalForce = sqrt((x * x + y * y + z * z).toDouble()).toFloat()
+        val netForce = abs(totalForce - GRAVITY)
 
-        if (force > shakeThreshold) {
+        // Only trigger on significant movement above threshold
+        if (netForce > shakeThreshold) {
             val now = System.currentTimeMillis()
 
             // Debounce: ignore if too close to last shake event
@@ -162,7 +170,7 @@ class ShakeDetectionService : Service(), SensorEventListener {
             }
             lastShakeTime = now
 
-            Log.d(TAG, "Shake #$shakeCount force=${"%.2f".format(force)}")
+            Log.d(TAG, "Shake #$shakeCount netForce=${"%.2f".format(netForce)} (threshold=$shakeThreshold)")
 
             if (shakeCount >= SHAKES_NEEDED) {
                 shakeCount = 0
