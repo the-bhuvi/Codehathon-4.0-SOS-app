@@ -5,3 +5,7 @@ supabase
 python-dotenv
 transformers
 torch
+langdetect
+deep-translator
+SpeechRecognition
+python-multipart
