@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import MapView from './Map';
 import IncidentList from './IncidentList';
@@ -10,54 +10,69 @@ const Dashboard = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
+    // Keep a ref to activeIncident so realtime callbacks always see the latest value
+    const activeIncidentRef = useRef(activeIncident);
     useEffect(() => {
-        fetchIncidents();
+        activeIncidentRef.current = activeIncident;
+    }, [activeIncident]);
 
-        // Subscribe to new incidents
+    const fetchIncidents = useCallback(async (showLoader = false) => {
+        try {
+            if (showLoader) setLoading(true);
+            const { data, error: fetchError } = await supabase
+                .from('incidents')
+                .select('*')
+                .order('created_at', { ascending: false });
+
+            if (fetchError) throw fetchError;
+
+            setIncidents(data || []);
+            setError(null);
+        } catch (err) {
+            console.error('Error fetching incidents:', err);
+            setError('Could not connect to database. Showing demo data.');
+            setIncidents(getMockIncidents());
+        } finally {
+            if (showLoader) setLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchIncidents(true);
+
+        // Subscribe to realtime changes
         const channel = supabase
-            .channel('public:incidents')
+            .channel('sos-incidents-realtime')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'incidents' }, payload => {
                 if (payload.eventType === 'INSERT') {
-                    setIncidents(current => [payload.new, ...current]);
+                    // Do a full re-fetch to guarantee we have the latest data
+                    fetchIncidents();
                 } else if (payload.eventType === 'UPDATE') {
                     setIncidents(current => current.map(inc => inc.id === payload.new.id ? payload.new : inc));
-                    if (activeIncident && activeIncident.id === payload.new.id) {
+                    const current = activeIncidentRef.current;
+                    if (current && current.id === payload.new.id) {
                         setActiveIncident(payload.new);
                     }
                 } else if (payload.eventType === 'DELETE') {
                     setIncidents(current => current.filter(inc => inc.id !== payload.old.id));
-                    if (activeIncident && activeIncident.id === payload.old.id) {
+                    const current = activeIncidentRef.current;
+                    if (current && current.id === payload.old.id) {
                         setActiveIncident(null);
                     }
                 }
             })
             .subscribe();
 
+        // Polling fallback: re-fetch every 15 seconds in case realtime events are missed
+        const pollInterval = setInterval(() => fetchIncidents(), 15000);
+
         return () => {
             supabase.removeChannel(channel);
+            clearInterval(pollInterval);
         };
-    }, []);
+    }, [fetchIncidents]);
 
-    const fetchIncidents = async () => {
-        try {
-            setLoading(true);
-            const { data, error } = await supabase
-                .from('incidents')
-                .select('*')
-                .order('created_at', { ascending: false });
 
-            if (error) throw error;
-
-            // Always use real Supabase data — only show mocks if DB is unreachable
-            setIncidents(data || []);
-        } catch (error) {
-            console.error('Error fetching incidents:', error);
-            setError('Could not connect to database. Showing demo data.');
-            setIncidents(getMockIncidents());
-        } finally {
-            setLoading(false);
-        }
-    };
 
     const handleResolve = async (id) => {
         try {
