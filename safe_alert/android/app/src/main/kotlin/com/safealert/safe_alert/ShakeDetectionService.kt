@@ -34,12 +34,12 @@ class ShakeDetectionService : Service(), SensorEventListener {
         const val EXTRA_SUPABASE_URL = "supabase_url"
         const val EXTRA_SUPABASE_KEY = "supabase_key"
 
-        // Fixed shake detection parameters
-        private const val SHAKE_THRESHOLD = 12.0f  // force magnitude threshold (sqrt of sum of squares)
+        // Fixed shake detection parameters - requires strong intentional shakes
+        private const val SHAKE_THRESHOLD = 18.0f  // Higher threshold to ignore small vibrations
         private const val SHAKES_NEEDED = 3
-        private const val SHAKE_WINDOW_MS = 2000L  // shakes must happen within 2 seconds
+        private const val SHAKE_WINDOW_MS = 2000L  // 3 shakes must happen within 2 seconds
         private const val TRIGGER_COOLDOWN_MS = 30000L  // 30s cooldown between triggers
-        private const val MIN_SHAKE_INTERVAL_MS = 200L  // ignore readings closer than 200ms (debounce)
+        private const val MIN_SHAKE_INTERVAL_MS = 300L  // 300ms debounce to require distinct shakes
     }
 
     private var sensorManager: SensorManager? = null
@@ -82,12 +82,12 @@ class ShakeDetectionService : Service(), SensorEventListener {
             supabaseKey = prefs.getString("flutter.supabase_key", "") ?: ""
         }
 
-        // Read shake sensitivity setting (low=10, medium=12, high=15)
+        // Read shake sensitivity setting (low=16, medium=18, high=22) - higher values = harder to trigger
         val sensitivity = prefs.getString("flutter.shake_sensitivity", "medium") ?: "medium"
         shakeThreshold = when (sensitivity) {
-            "low" -> 10.0f
-            "high" -> 15.0f
-            else -> 12.0f  // medium
+            "low" -> 16.0f    // easier to trigger but still requires intentional shake
+            "high" -> 22.0f   // harder to trigger, requires very strong shakes
+            else -> 18.0f     // medium - good balance, ignores normal movement
         }
 
         // Build stop action
@@ -206,8 +206,10 @@ class ShakeDetectionService : Service(), SensorEventListener {
                 val bloodGroup = prefs.getString("flutter.blood_group", "") ?: ""
                 val medicalConditions = prefs.getString("flutter.medical_conditions", "") ?: ""
 
-                val timestamp = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault())
-                    .format(java.util.Date())
+                // Use UTC timestamp in ISO8601 format for consistency with backend
+                val timestamp = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US).apply {
+                    timeZone = java.util.TimeZone.getTimeZone("UTC")
+                }.format(java.util.Date())
 
                 val message = "PANIC ALERT - Automatic shake trigger!"
 
@@ -331,8 +333,8 @@ class ShakeDetectionService : Service(), SensorEventListener {
                 if (emergencyContactName.isNotEmpty()) append("\"emergency_contact_name\":\"${escapeJson(emergencyContactName)}\",")
                 if (emergencyContactPhone.isNotEmpty()) append("\"emergency_contact_phone\":\"${escapeJson(emergencyContactPhone)}\",")
                 if (bloodGroup.isNotEmpty()) append("\"blood_group\":\"${escapeJson(bloodGroup)}\",")
-                if (medicalConditions.isNotEmpty()) append("\"medical_conditions\":\"${escapeJson(medicalConditions)}\",")
-                append("\"created_at\":\"${timestamp}\"")
+                if (medicalConditions.isNotEmpty()) append("\"medical_conditions\":\"${escapeJson(medicalConditions)}\"")
+                // Don't send created_at - let database use server timestamp (DEFAULT now())
                 append("}")
             }
 
