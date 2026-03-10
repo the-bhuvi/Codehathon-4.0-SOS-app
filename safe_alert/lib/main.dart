@@ -6,6 +6,7 @@ import 'package:safe_alert/theme/app_theme.dart';
 import 'package:safe_alert/screens/home/home_screen.dart';
 import 'package:safe_alert/screens/history/history_screen.dart';
 import 'package:safe_alert/screens/settings/settings_screen.dart';
+import 'package:safe_alert/screens/confirmation/confirmation_screen.dart';
 import 'package:safe_alert/providers/app_providers.dart';
 import 'package:safe_alert/services/sms_service.dart';
 import 'package:safe_alert/services/shake_service.dart';
@@ -104,12 +105,20 @@ class _SafeAlertAppState extends ConsumerState<SafeAlertApp> {
   }
 
   void _handleShakeTrigger() {
-    // Auto-trigger SOS immediately — no delay
+    // Send SOS alert
     ref.read(sosProvider.notifier).sendSOS(
       'PANIC ALERT - Shake triggered!',
       emergencyType: 'panic',
       captureCamera: true,
     );
+
+    // Navigate to confirmation screen (same as manual SOS press)
+    final ctx = _navigatorKey.currentContext;
+    if (ctx != null) {
+      Navigator.of(ctx).push(
+        MaterialPageRoute(builder: (_) => const ConfirmationScreen()),
+      );
+    }
   }
 
   @override

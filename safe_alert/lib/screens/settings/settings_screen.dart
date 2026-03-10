@@ -29,6 +29,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   String _language = 'English';
   bool _shakePanicEnabled = true;
   bool _autoRecordEnabled = false;
+  bool _autoSmsEnabled = true;
   String _shakeSensitivity = 'medium';
   bool _shakeServiceRunning = false;
 
@@ -65,6 +66,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _language = await storage.getLanguage();
     _shakePanicEnabled = await storage.getShakePanicEnabled();
     _autoRecordEnabled = await storage.getAutoRecordEnabled();
+    _autoSmsEnabled = await storage.getAutoSmsEnabled();
     _shakeSensitivity = await storage.getShakeSensitivity();
     _contacts = await storage.getContacts();
     _shakeServiceRunning = await ShakeBackgroundService.isRunning();
@@ -95,6 +97,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     await storage.setLanguage(_language);
     await storage.setShakePanicEnabled(_shakePanicEnabled);
     await storage.setAutoRecordEnabled(_autoRecordEnabled);
+    await storage.setAutoSmsEnabled(_autoSmsEnabled);
     await storage.setShakeSensitivity(_shakeSensitivity);
 
     // Start or stop background shake service based on toggle
@@ -388,6 +391,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   value: _autoRecordEnabled,
                   activeColor: AppTheme.accentOrange,
                   onChanged: (val) => setState(() => _autoRecordEnabled = val),
+                ),
+                const Divider(height: 1, color: AppTheme.primaryDark),
+                SwitchListTile(
+                  title: const Text('Auto SMS to Contacts',
+                      style: TextStyle(color: AppTheme.textPrimary)),
+                  subtitle: const Text('Automatically send SMS to emergency contacts on SOS',
+                      style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+                  value: _autoSmsEnabled,
+                  activeColor: AppTheme.accentOrange,
+                  onChanged: (val) => setState(() => _autoSmsEnabled = val),
                 ),
               ],
             ),

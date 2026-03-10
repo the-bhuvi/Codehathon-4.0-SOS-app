@@ -168,6 +168,16 @@ class StorageService {
     await prefs.setBool('auto_record_enabled', val);
   }
 
+  Future<bool> getAutoSmsEnabled() async {
+    final prefs = await _prefs;
+    return prefs.getBool('auto_sms_enabled') ?? true;
+  }
+
+  Future<void> setAutoSmsEnabled(bool val) async {
+    final prefs = await _prefs;
+    await prefs.setBool('auto_sms_enabled', val);
+  }
+
   // Offline Queue
   Future<List<Map<String, dynamic>>> getOfflineQueue() async {
     final prefs = await _prefs;

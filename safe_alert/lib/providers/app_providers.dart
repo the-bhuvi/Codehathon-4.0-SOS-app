@@ -184,8 +184,11 @@ class SOSNotifier extends StateNotifier<SOSState> {
         incident = await _fallbackSupabaseInsert(lat, lng, effectiveMessage, timestamp, emergencyType, agency, profile);
       }
 
-      // Send SMS in background (non-blocking)
-      _sendEmergencySMS(profile, effectiveMessage, lat, lng);
+      // Send SMS in background (non-blocking) if auto-SMS is enabled
+      final autoSmsEnabled = await _storageService.getAutoSmsEnabled();
+      if (autoSmsEnabled) {
+        _sendEmergencySMS(profile, effectiveMessage, lat, lng);
+      }
 
       // Wait for media uploads and update incident record
       try {
