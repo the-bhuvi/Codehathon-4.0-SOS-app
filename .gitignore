@@ -23,3 +23,19 @@ dist-ssr
 *.sln
 *.sw?
 node_modules
+
+# ============================================================
+# SECRET FILES — NEVER COMMIT THESE
+# ============================================================
+.env
+.env.*
+!.env.example
+*.env
+
+# Flutter dart-define secrets
+dart_defines/
+
+# Python virtual environment
+venv/
+__pycache__/
+*.pyc
