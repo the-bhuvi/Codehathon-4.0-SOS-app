@@ -575,6 +575,59 @@ body::after {
 
 .alert-flash.show { opacity: 1; }
 
+.message-confirmation-banner {
+  position: absolute;
+  top: 3.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  color: var(--green);
+  background: rgba(0,230,118,0.08);
+  border: 1px solid rgba(0,230,118,0.3);
+  padding: 10px 16px;
+  border-radius: 6px;
+  z-index: 10;
+  animation: slideDown 0.3s ease both;
+  backdrop-filter: blur(8px);
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+.confirmation-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.confirmation-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.confirmation-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.confirmation-title {
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--green);
+}
+
+.confirmation-detail {
+  font-size: 0.6rem;
+  color: var(--muted);
+  line-height: 1.3;
+}
+
 .map-legend {
   position: absolute;
   bottom: 1rem;

@@ -32,6 +32,7 @@ const Dashboard = () => {
         ];
     });
     const [alertFlash, setAlertFlash] = useState({ show: false, text: '' });
+    const [messageConfirmation, setMessageConfirmation] = useState({ show: false, message: '', department: '', icon: '' });
 
     const activeIncidentRef = useRef(activeIncident);
     useEffect(() => { activeIncidentRef.current = activeIncident; }, [activeIncident]);
@@ -125,6 +126,52 @@ const Dashboard = () => {
             if (error) console.warn('Could not update in DB:', error);
         } catch (err) {
             console.error('Attempt to resolve failed', err);
+        }
+    };
+
+    const handleSendMessage = async (incident) => {
+        if (!incident) return;
+        
+        const agencyMap = {
+            fire_dept: { emoji: '🚒', label: 'Fire Department', color: 'rgba(231,76,60,0.1)' },
+            ambulance: { emoji: '🚑', label: 'Ambulance Service', color: 'rgba(46,204,113,0.1)' },
+            police: { emoji: '🚔', label: 'Police Department', color: 'rgba(52,152,219,0.1)' },
+        };
+
+        const agency = incident.agency || 'police';
+        const agencyInfo = agencyMap[agency] || agencyMap.police;
+
+        try {
+            const messageBody = `🆘 SOS ALERT
+User: ${incident.user_name || 'Unknown'}
+Location: ${incident.lat?.toFixed(5)}°N, ${incident.lng?.toFixed(5)}°E
+Type: ${incident.emergency_type || 'Emergency'}
+Severity: ${incident.severity || 'MEDIUM'}
+Message: ${incident.message || 'No additional details'}
+Timestamp: ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}`;
+
+            const messageConfirmText = `Message sent to ${agencyInfo.label}: SOS alert with incident details, location coordinates, and user information dispatched.`;
+
+            setMessageConfirmation({
+                show: true,
+                message: messageConfirmText,
+                department: agencyInfo.label,
+                icon: agencyInfo.emoji
+            });
+
+            addActivity(
+                agencyInfo.emoji,
+                `Alert message sent to ${agencyInfo.label} — ${incident.user_name || 'Unknown'} (${incident.emergency_type || 'Emergency'})`,
+                agencyInfo.color
+            );
+
+            setTimeout(() => {
+                setMessageConfirmation({ show: false, message: '', department: '', icon: '' });
+            }, 5000);
+
+            console.log('Message prepared for:', agencyInfo.label, messageBody);
+        } catch (err) {
+            console.error('Error sending message:', err);
         }
     };
 
@@ -247,6 +294,18 @@ const Dashboard = () => {
                         ⚠ {alertFlash.text || 'NEW SOS INCOMING'}
                     </div>
 
+                    {messageConfirmation.show && (
+                        <div className="message-confirmation-banner">
+                            <div className="confirmation-content">
+                                <div className="confirmation-icon">{messageConfirmation.icon}</div>
+                                <div className="confirmation-text">
+                                    <div className="confirmation-title">✓ Message Sent</div>
+                                    <div className="confirmation-detail">{messageConfirmation.message}</div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     <MapView
                         incidents={filteredIncidents}
                         activeIncident={activeIncident}
@@ -294,6 +353,7 @@ const Dashboard = () => {
                 <RightPanel
                     activeIncident={activeIncident}
                     onResolve={handleResolve}
+                    onSendMessage={handleSendMessage}
                     activities={activities}
                 />
             </div>

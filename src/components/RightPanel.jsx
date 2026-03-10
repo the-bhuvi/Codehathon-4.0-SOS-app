@@ -7,7 +7,7 @@ const EMERGENCY_LABELS = {
 
 const AGENCY_ICONS = { police: '🚔', ambulance: '🚑', fire_dept: '🚒' };
 
-const RightPanel = ({ activeIncident, onResolve, activities }) => {
+const RightPanel = ({ activeIncident, onResolve, onSendMessage, activities }) => {
     const [aiText, setAiText] = useState('Awaiting incident data...');
     const [isTyping, setIsTyping] = useState(false);
     const [confidences, setConfidences] = useState({ severity: 0, urgency: 0, confidence: 0 });
@@ -284,6 +284,9 @@ RECOMMENDATION: ${incident.severity === 'HIGH' ? 'Immediate dispatch required.' 
             {/* ACTIONS */}
             {activeIncident && activeIncident.status !== 'resolved' && (
                 <div className="actions">
+                    <button className="btn btn-primary" onClick={() => onSendMessage(activeIncident)}>
+                        📤 SEND ALERT MESSAGE
+                    </button>
                     <button className="btn btn-primary" onClick={handleDispatch}>⚡ DISPATCH RESPONDER</button>
                     <button className="btn btn-resolve" onClick={() => onResolve(activeIncident.id)}>✓ MARK RESOLVED</button>
                     <button className="btn btn-secondary" onClick={handleContact}>📞 CONTACT USER</button>
