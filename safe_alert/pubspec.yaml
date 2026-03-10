@@ -11,7 +11,7 @@ dependencies:
     sdk: flutter
   cupertino_icons: ^1.0.8
   flutter_riverpod: ^2.5.1
-  geolocator: ^12.0.0
+  geolocator: ^14.0.0
   geocoding: ^3.0.0
   dio: ^5.4.0
   supabase_flutter: ^2.5.0
@@ -30,6 +30,10 @@ dependencies:
   record: ^6.0.0
   sensors_plus: ^5.0.1
   camera: ^0.11.0+2
+
+dependency_overrides:
+  # Force latest app_links version which has compileSdk fix
+  app_links: 7.0.0
 
 dev_dependencies:
   flutter_test:

@@ -21,20 +21,26 @@ const Dashboard = () => {
     const [agencyFilter, setAgencyFilter] = useState('all');
     const [showHeatmap, setShowHeatmap] = useState(false);
     const [viewTab, setViewTab] = useState('active');
-    const [activities, setActivities] = useState([
-        { icon: '🟢', text: 'SafeAlert Command Center initialized', time: new Date().toLocaleTimeString(), bg: 'rgba(0,230,118,0.1)' },
-        { icon: '📡', text: 'Supabase Realtime connected — listening for SOS events', time: new Date().toLocaleTimeString(), bg: 'rgba(41,182,246,0.1)' },
-        { icon: '🤖', text: 'AI classification engine online (FastAPI)', time: new Date().toLocaleTimeString(), bg: 'rgba(155,95,255,0.1)' },
-        { icon: '🗺️', text: 'GPS tracking active — 12 responder units online', time: new Date().toLocaleTimeString(), bg: 'rgba(0,230,118,0.1)' },
-    ]);
+    const [activities, setActivities] = useState(() => {
+        const now = new Date();
+        const timeStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+        return [
+            { icon: '🟢', text: 'SafeAlert Command Center initialized', time: timeStr, bg: 'rgba(0,230,118,0.1)' },
+            { icon: '📡', text: 'Supabase Realtime connected — listening for SOS events', time: timeStr, bg: 'rgba(41,182,246,0.1)' },
+            { icon: '🤖', text: 'AI classification engine online (FastAPI)', time: timeStr, bg: 'rgba(155,95,255,0.1)' },
+            { icon: '🗺️', text: 'GPS tracking active — 12 responder units online', time: timeStr, bg: 'rgba(0,230,118,0.1)' },
+        ];
+    });
     const [alertFlash, setAlertFlash] = useState({ show: false, text: '' });
 
     const activeIncidentRef = useRef(activeIncident);
     useEffect(() => { activeIncidentRef.current = activeIncident; }, [activeIncident]);
 
     const addActivity = useCallback((icon, text, bg) => {
+        const now = new Date();
+        const timeStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
         setActivities(prev => [{
-            icon, text, time: new Date().toLocaleTimeString(), bg, isNew: true
+            icon, text, time: timeStr, bg, isNew: true
         }, ...prev.slice(0, 29)]);
     }, []);
 
@@ -46,17 +52,23 @@ const Dashboard = () => {
     const fetchIncidents = useCallback(async (showLoader = false) => {
         try {
             if (showLoader) setLoading(true);
+            console.log('Fetching incidents from database...');
+            
             const { data, error: fetchError } = await supabase
                 .from('incidents')
                 .select('*')
                 .order('created_at', { ascending: false });
 
             if (fetchError) throw fetchError;
+            
+            console.log('Database incidents loaded:', data?.length || 0, 'records');
+            console.log('Sample created_at:', data?.[0]?.created_at);
+            
             setIncidents(data || []);
             setError(null);
         } catch (err) {
             console.error('Error fetching incidents:', err);
-            setError('Could not connect to database. Showing demo data.');
+            setError('⚠️ Demo Mode - Database not connected');
             setIncidents(getMockIncidents());
         } finally {
             if (showLoader) setLoading(false);
@@ -121,10 +133,24 @@ const Dashboard = () => {
         ? incidents
         : incidents.filter(inc => (inc.agency || 'police') === agencyFilter);
 
-    // Apply active/history tab filter
-    const filteredIncidents = viewTab === 'active'
+    // Severity priority for sorting (higher number = higher priority)
+    const severityPriority = { 'HIGH': 3, 'MEDIUM': 2, 'LOW': 1 };
+
+    // Apply active/history tab filter and sort
+    const filteredIncidents = (viewTab === 'active'
         ? agencyFiltered.filter(inc => inc.status !== 'resolved')
-        : agencyFiltered.filter(inc => inc.status === 'resolved');
+        : agencyFiltered.filter(inc => inc.status === 'resolved')
+    ).sort((a, b) => {
+        // First sort by severity (HIGH first)
+        const sevA = severityPriority[a.severity?.toUpperCase()] || 0;
+        const sevB = severityPriority[b.severity?.toUpperCase()] || 0;
+        if (sevB !== sevA) return sevB - sevA;
+        
+        // Then sort by time (newest first)
+        const timeA = new Date(a.created_at).getTime() || 0;
+        const timeB = new Date(b.created_at).getTime() || 0;
+        return timeB - timeA;
+    });
 
     // Stats
     const stats = {
@@ -280,35 +306,51 @@ const Dashboard = () => {
 export default Dashboard;
 
 function getMockIncidents() {
+    // Create timestamps relative to current local time
+    const createTimestamp = (minutesAgo) => {
+        const date = new Date();
+        date.setMinutes(date.getMinutes() - minutesAgo);
+        return date.toISOString();
+    };
+    
     return [
         {
             id: 'mock-0001-0000-0000-000000000001', lat: 28.6139, lng: 77.2090,
-            severity: 'HIGH', message: 'Fire reported in residential building.', status: 'active',
+            severity: 'HIGH', message: 'Fire reported in residential building. Smoke visible from 3rd floor. People trapped inside!', status: 'active',
             emergency_type: 'fire', agency: 'fire_dept', detected_language: 'en',
             user_name: 'Rahul Kumar', severity_score: 0.92,
-            created_at: new Date(Date.now() - 1000 * 60 * 5).toISOString()
+            blood_group: 'O+',
+            voice_transcript: 'Help! There is fire in my building. People are stuck on the third floor.',
+            audio_url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',
+            created_at: createTimestamp(5)  // 5 mins ago
         },
         {
             id: 'mock-0002-0000-0000-000000000002', lat: 28.6448, lng: 77.2167,
-            severity: 'MEDIUM', message: 'Road accident, person injured.', status: 'active',
+            severity: 'MEDIUM', message: 'Road accident, person injured. Two vehicles involved.', status: 'active',
             emergency_type: 'accident', agency: 'ambulance', detected_language: 'en',
             user_name: 'Priya Singh', severity_score: 0.75,
-            created_at: new Date(Date.now() - 1000 * 60 * 15).toISOString()
+            blood_group: 'A+',
+            medical_conditions: 'Diabetes',
+            video_url: 'https://www.w3schools.com/html/mov_bbb.mp4',
+            created_at: createTimestamp(15)  // 15 mins ago
         },
         {
             id: 'mock-0003-0000-0000-000000000003', lat: 28.5672, lng: 77.2100,
-            severity: 'LOW', message: 'Feeling unsafe, someone following.', status: 'active',
+            severity: 'LOW', message: 'Feeling unsafe, someone following me for the last 10 minutes.', status: 'active',
             emergency_type: 'following', agency: 'police', detected_language: 'en',
             user_name: 'Anita Sharma', severity_score: 0.45,
-            created_at: new Date(Date.now() - 1000 * 60 * 60).toISOString()
+            audio_url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3',
+            voice_transcript: 'Someone is following me. I am near the metro station. Please send help.',
+            created_at: createTimestamp(60)  // 1 hr ago
         },
         {
             id: 'mock-0004-0000-0000-000000000004', lat: 28.6329, lng: 77.2195,
-            severity: 'HIGH', message: 'Robbery in progress, need police.', status: 'resolved',
+            severity: 'HIGH', message: 'Robbery in progress, need police immediately.', status: 'resolved',
             emergency_type: 'robbery', agency: 'police', detected_language: 'hi',
             original_message: 'डकैती हो रही है, पुलिस भेजो',
             user_name: 'Vikram Patel', severity_score: 0.88,
-            created_at: new Date(Date.now() - 1000 * 60 * 120).toISOString()
+            blood_group: 'B+',
+            created_at: createTimestamp(120)  // 2 hrs ago
         }
     ];
 }
