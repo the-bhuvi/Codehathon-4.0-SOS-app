@@ -624,6 +624,26 @@ body::after {
 .right-panel {
   border-right: none;
   border-left: 1px solid var(--border);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* Custom scrollbar for right panel */
+.right-panel::-webkit-scrollbar {
+  width: 6px;
+}
+
+.right-panel::-webkit-scrollbar-track {
+  background: var(--s2);
+}
+
+.right-panel::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+.right-panel::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
 }
 
 /* AI ANALYSIS BOX */
@@ -771,6 +791,90 @@ body::after {
   font-family: var(--mono);
   font-size: 0.68rem;
   color: var(--text);
+}
+
+/* ── MEDIA SECTION (Audio/Video) ── */
+.media-section {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+.media-label {
+  font-family: var(--mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 0.5rem;
+}
+
+.media-content {
+  font-size: 0.72rem;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.message-box {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.6rem 0.8rem;
+  font-family: var(--body);
+}
+
+.media-player {
+  width: 100%;
+  border-radius: 6px;
+  background: var(--s2);
+}
+
+.audio-player {
+  height: 36px;
+}
+
+.video-player {
+  max-height: 180px;
+  background: #000;
+}
+
+/* Custom audio player styling */
+.audio-player::-webkit-media-controls-panel {
+  background: var(--s2);
+}
+
+.audio-player::-webkit-media-controls-current-time-display,
+.audio-player::-webkit-media-controls-time-remaining-display {
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 0.6rem;
+}
+
+.media-badges {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 0.75rem;
+}
+
+.media-badge {
+  font-family: var(--mono);
+  font-size: 0.55rem;
+  letter-spacing: 0.05em;
+  padding: 3px 8px;
+  border-radius: 100px;
+  background: var(--green2);
+  color: var(--green);
+  border: 1px solid rgba(0,230,118,0.2);
+}
+
+/* Light theme media adjustments */
+[data-theme="light"] .media-player {
+  background: var(--s3);
+}
+
+[data-theme="light"] .message-box {
+  background: var(--s2);
 }
 
 /* ACTION BUTTONS */
