@@ -128,6 +128,16 @@ class StorageService {
     await prefs.setBool('shake_panic_enabled', val);
   }
 
+  Future<String> getShakeSensitivity() async {
+    final prefs = await _prefs;
+    return prefs.getString('shake_sensitivity') ?? 'medium';
+  }
+
+  Future<void> setShakeSensitivity(String val) async {
+    final prefs = await _prefs;
+    await prefs.setString('shake_sensitivity', val);
+  }
+
   Future<double> getShakeThreshold() async {
     final prefs = await _prefs;
     return prefs.getDouble('shake_threshold') ?? 12.0;
@@ -156,6 +166,16 @@ class StorageService {
   Future<void> setAutoRecordEnabled(bool val) async {
     final prefs = await _prefs;
     await prefs.setBool('auto_record_enabled', val);
+  }
+
+  Future<bool> getAutoSmsEnabled() async {
+    final prefs = await _prefs;
+    return prefs.getBool('auto_sms_enabled') ?? true;
+  }
+
+  Future<void> setAutoSmsEnabled(bool val) async {
+    final prefs = await _prefs;
+    await prefs.setBool('auto_sms_enabled', val);
   }
 
   // Offline Queue

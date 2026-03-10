@@ -1,11 +1,11 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:safe_alert/providers/app_providers.dart';
 import 'package:safe_alert/theme/app_theme.dart';
-import 'package:safe_alert/widgets/sos_button.dart';
 import 'package:safe_alert/widgets/status_badge.dart';
 import 'package:safe_alert/screens/confirmation/confirmation_screen.dart';
 import 'package:safe_alert/services/shake_service.dart';
@@ -17,8 +17,8 @@ class HomeScreen extends ConsumerStatefulWidget {
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends ConsumerState<HomeScreen> {
-  final TextEditingController _messageController = TextEditingController();
+class _HomeScreenState extends ConsumerState<HomeScreen>
+    with TickerProviderStateMixin {
   String _selectedEmergencyType = 'general';
 
   // Voice recording
@@ -30,6 +30,45 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   // Background shake service status
   bool _shakeServiceRunning = false;
+
+  // SOS hold-to-activate
+  bool _isHolding = false;
+  double _holdProgress = 0.0;
+  Timer? _holdTimer;
+  static const int _holdDurationMs = 1000;
+  static const int _holdTickMs = 20;
+
+  // Emergency type definitions — 4 large tiles
+  static const List<Map<String, dynamic>> _emergencyTiles = [
+    {
+      'type': 'fire',
+      'icon': Icons.local_fire_department,
+      'label': 'Fire',
+      'color': Color(0xFFE74C3C),
+      'gradient': [Color(0xFFE74C3C), Color(0xFFFF6B35)],
+    },
+    {
+      'type': 'robbery',
+      'icon': Icons.gpp_bad,
+      'label': 'Robbery',
+      'color': Color(0xFF3498DB),
+      'gradient': [Color(0xFF2980B9), Color(0xFF3498DB)],
+    },
+    {
+      'type': 'medical',
+      'icon': Icons.medical_services,
+      'label': 'Medical',
+      'color': Color(0xFF2ECC71),
+      'gradient': [Color(0xFF27AE60), Color(0xFF2ECC71)],
+    },
+    {
+      'type': 'unsafe',
+      'icon': Icons.visibility,
+      'label': 'Unsafe',
+      'color': Color(0xFFF1C40F),
+      'gradient': [Color(0xFFF39C12), Color(0xFFF1C40F)],
+    },
+  ];
 
   @override
   void initState() {
@@ -44,21 +83,66 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   @override
   void dispose() {
-    _messageController.dispose();
     _recordingTimer?.cancel();
+    _holdTimer?.cancel();
     _audioRecorder.dispose();
     super.dispose();
   }
 
-  // Emergency type definitions
-  static const List<Map<String, dynamic>> _emergencyTypes = [
-    {'type': 'fire', 'icon': Icons.local_fire_department, 'label': 'Fire', 'color': Colors.deepOrange},
-    {'type': 'accident', 'icon': Icons.car_crash, 'label': 'Accident', 'color': Colors.orange},
-    {'type': 'robbery', 'icon': Icons.warning_amber, 'label': 'Robbery', 'color': Colors.red},
-    {'type': 'medical', 'icon': Icons.medical_services, 'label': 'Medical', 'color': Colors.blue},
-    {'type': 'following', 'icon': Icons.visibility, 'label': 'Following', 'color': Colors.purple},
-    {'type': 'unsafe', 'icon': Icons.shield, 'label': 'Unsafe', 'color': Colors.amber},
-  ];
+  Color get _sosColor {
+    final match = _emergencyTiles.where((t) => t['type'] == _selectedEmergencyType);
+    if (match.isNotEmpty) return match.first['color'] as Color;
+    return AppTheme.accentRed;
+  }
+
+  void _startHold() {
+    setState(() {
+      _isHolding = true;
+      _holdProgress = 0.0;
+    });
+    _holdTimer = Timer.periodic(Duration(milliseconds: _holdTickMs), (timer) {
+      setState(() {
+        _holdProgress += _holdTickMs / _holdDurationMs;
+      });
+      if (_holdProgress >= 1.0) {
+        _holdTimer?.cancel();
+        _holdProgress = 1.0;
+        _onSOSActivated();
+      }
+    });
+  }
+
+  void _cancelHold() {
+    _holdTimer?.cancel();
+    setState(() {
+      _isHolding = false;
+      _holdProgress = 0.0;
+    });
+  }
+
+  void _onSOSActivated() {
+    setState(() {
+      _isHolding = false;
+      _holdProgress = 0.0;
+    });
+
+    // Send SOS with selected emergency type, include audio path if recorded
+    final typeLabel = _selectedEmergencyType != 'general'
+        ? _selectedEmergencyType.toUpperCase()
+        : 'SOS';
+    ref.read(sosProvider.notifier).sendSOS(
+      '[$typeLabel] Emergency alert triggered!',
+      emergencyType: _selectedEmergencyType,
+      audioFilePath: _audioPath,
+    );
+
+    if (mounted) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const ConfirmationScreen()),
+      );
+    }
+  }
 
   Future<void> _toggleRecording() async {
     if (_isRecording) {
@@ -74,7 +158,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       if (!hasPermission) return;
 
       final dir = await getTemporaryDirectory();
-      final path = '${dir.path}/sos_voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      final path =
+          '${dir.path}/sos_voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
       await _audioRecorder.start(
         const RecordConfig(encoder: AudioEncoder.aacLc, bitRate: 128000),
         path: path,
@@ -85,233 +170,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       });
       _recordingTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
         setState(() => _recordingSeconds++);
-        if (_recordingSeconds >= 20) {
-          _toggleRecording(); // Auto-stop at 20s
-        }
+        if (_recordingSeconds >= 20) _toggleRecording();
       });
-    }
-  }
-
-  void _showSOSBottomSheet() {
-    _selectedEmergencyType = 'general';
-    _audioPath = null;
-
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: AppTheme.surfaceDark,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      isScrollControlled: true,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setSheetState) => Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom,
-            left: 20,
-            right: 20,
-            top: 20,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text(
-                '🚨 Emergency Alert',
-                style: TextStyle(
-                  color: AppTheme.textPrimary,
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Select type & describe your emergency',
-                style: TextStyle(color: AppTheme.textSecondary.withOpacity(0.7), fontSize: 13),
-              ),
-              const SizedBox(height: 16),
-
-              // Emergency type quick buttons
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: _emergencyTypes.map((type) {
-                  final isSelected = _selectedEmergencyType == type['type'];
-                  return GestureDetector(
-                    onTap: () => setSheetState(() => _selectedEmergencyType = type['type'] as String),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: isSelected
-                            ? (type['color'] as Color).withOpacity(0.25)
-                            : AppTheme.cardDark,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: isSelected ? type['color'] as Color : Colors.transparent,
-                          width: 1.5,
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(type['icon'] as IconData, color: type['color'] as Color, size: 18),
-                          const SizedBox(width: 6),
-                          Text(
-                            type['label'] as String,
-                            style: TextStyle(
-                              color: isSelected ? Colors.white : AppTheme.textSecondary,
-                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 16),
-
-              // Message input
-              TextField(
-                controller: _messageController,
-                maxLines: 3,
-                autofocus: true,
-                style: const TextStyle(color: AppTheme.textPrimary),
-                decoration: InputDecoration(
-                  hintText: 'Describe your emergency (any language)...',
-                  hintStyle: TextStyle(color: AppTheme.textSecondary.withOpacity(0.5)),
-                  filled: true,
-                  fillColor: AppTheme.cardDark,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: AppTheme.accentRed, width: 1.5),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              // Voice recording button
-              Row(
-                children: [
-                  GestureDetector(
-                    onTap: () {
-                      _toggleRecording();
-                      setSheetState(() {});
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                      decoration: BoxDecoration(
-                        color: _isRecording ? Colors.red.withOpacity(0.2) : AppTheme.cardDark,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: _isRecording ? Colors.red : AppTheme.textSecondary.withOpacity(0.3),
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            _isRecording ? Icons.stop : Icons.mic,
-                            color: _isRecording ? Colors.red : AppTheme.textSecondary,
-                            size: 20,
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            _isRecording
-                                ? 'Recording ${_recordingSeconds}s / 20s'
-                                : (_audioPath != null ? '✓ Voice recorded' : 'Record voice'),
-                            style: TextStyle(
-                              color: _isRecording ? Colors.red : AppTheme.textSecondary,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  if (_audioPath != null && !_isRecording) ...[
-                    const SizedBox(width: 8),
-                    GestureDetector(
-                      onTap: () {
-                        _audioPath = null;
-                        setSheetState(() {});
-                      },
-                      child: const Icon(Icons.close, color: AppTheme.textSecondary, size: 18),
-                    ),
-                  ],
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              // Action buttons
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () {
-                        _messageController.clear();
-                        Navigator.pop(context);
-                      },
-                      style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: AppTheme.textSecondary),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      child: const Text('Cancel', style: TextStyle(color: AppTheme.textSecondary)),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    flex: 2,
-                    child: ElevatedButton.icon(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        _triggerSOS();
-                      },
-                      icon: const Icon(Icons.send, color: Colors.white),
-                      label: const Text('SEND SOS',
-                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppTheme.accentRed,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _triggerSOS() async {
-    final message = _messageController.text.trim();
-    _messageController.clear();
-
-    // Prepend emergency type to message if selected
-    final effectiveMessage = _selectedEmergencyType != 'general'
-        ? '[${_selectedEmergencyType.toUpperCase()}] $message'
-        : message;
-
-    ref.read(sosProvider.notifier).sendSOS(
-      effectiveMessage,
-      emergencyType: _selectedEmergencyType,
-    );
-
-    if (mounted) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const ConfirmationScreen()),
-      );
     }
   }
 
@@ -319,59 +179,66 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Widget build(BuildContext context) {
     final sosState = ref.watch(sosProvider);
     final locationAsync = ref.watch(currentLocationProvider);
-    final isSafe = sosState.status == SOSStatus.idle ||
-        sosState.status == SOSStatus.cancelled;
+    final isSafe =
+        sosState.status == SOSStatus.idle || sosState.status == SOSStatus.cancelled;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.shield, color: AppTheme.accentRed, size: 24),
-            SizedBox(width: 8),
-            Text('SafeAlert'),
-          ],
-        ),
-      ),
       body: SafeArea(
-        child: Center(
-          child: Column(
-            children: [
-              const SizedBox(height: 24),
-              StatusBadge(isSafe: isSafe),
-              const SizedBox(height: 16),
-
-              // Quick emergency type chips
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  alignment: WrapAlignment.center,
-                  children: _emergencyTypes.map((type) {
-                    return ActionChip(
-                      avatar: Icon(type['icon'] as IconData, color: type['color'] as Color, size: 16),
-                      label: Text(type['label'] as String, style: const TextStyle(fontSize: 11)),
-                      backgroundColor: AppTheme.cardDark,
-                      side: BorderSide.none,
-                      onPressed: () {
-                        _selectedEmergencyType = type['type'] as String;
-                        _showSOSBottomSheet();
-                      },
-                    );
-                  }).toList(),
-                ),
+        child: Column(
+          children: [
+            // Top bar: status + location + shake indicator
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+              child: Row(
+                children: [
+                  StatusBadge(isSafe: isSafe),
+                  const Spacer(),
+                  // Shake protection indicator
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: _shakeServiceRunning
+                          ? AppTheme.safeGreen.withOpacity(0.15)
+                          : AppTheme.cardDark,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: _shakeServiceRunning
+                            ? AppTheme.safeGreen.withOpacity(0.5)
+                            : Colors.transparent,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.vibration,
+                          color: _shakeServiceRunning
+                              ? AppTheme.safeGreen
+                              : AppTheme.textSecondary,
+                          size: 16,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          _shakeServiceRunning ? 'Protected' : 'Off',
+                          style: TextStyle(
+                            color: _shakeServiceRunning
+                                ? AppTheme.safeGreen
+                                : AppTheme.textSecondary,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
+            ),
 
-              const Spacer(),
-              SOSButton(
-                onPressed: _showSOSBottomSheet,
-                isActive: !isSafe,
-              ),
-              const SizedBox(height: 32),
-
-              // Location display
-              locationAsync.when(
+            // GPS location
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: locationAsync.when(
                 data: (position) {
                   if (position == null) {
                     return const _LocationRow(
@@ -398,61 +265,266 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   color: AppTheme.accentRed,
                 ),
               ),
-              const Spacer(),
+            ),
 
-              // Background shake service indicator
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Row(
+            const SizedBox(height: 12),
+
+            // Emergency grid + SOS button (takes remaining space)
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Stack(
+                  children: [
+                    // 4 large emergency tiles in a 2×2 grid
+                    Column(
                       children: [
-                        Icon(
-                          Icons.vibration,
-                          color: _shakeServiceRunning ? AppTheme.safeGreen : AppTheme.textSecondary,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 8),
                         Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                          child: Row(
                             children: [
-                              Text(
-                                _shakeServiceRunning
-                                    ? 'Background Protection Active'
-                                    : 'Background Protection Off',
-                                style: TextStyle(
-                                  color: _shakeServiceRunning ? AppTheme.safeGreen : AppTheme.textPrimary,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 13,
-                                ),
-                              ),
-                              Text(
-                                _shakeServiceRunning
-                                    ? 'Shake phone to trigger SOS even when app is closed'
-                                    : 'Enable in Settings → Panic Mode',
-                                style: TextStyle(
-                                  color: AppTheme.textSecondary.withOpacity(0.7),
-                                  fontSize: 11,
-                                ),
-                              ),
+                              _buildEmergencyTile(_emergencyTiles[0]), // Fire
+                              const SizedBox(width: 12),
+                              _buildEmergencyTile(_emergencyTiles[1]), // Robbery
                             ],
                           ),
                         ),
-                        Icon(
-                          _shakeServiceRunning ? Icons.check_circle : Icons.cancel_outlined,
-                          color: _shakeServiceRunning ? AppTheme.safeGreen : AppTheme.textSecondary,
-                          size: 18,
+                        const SizedBox(height: 12),
+                        Expanded(
+                          child: Row(
+                            children: [
+                              _buildEmergencyTile(_emergencyTiles[2]), // Medical
+                              const SizedBox(width: 12),
+                              _buildEmergencyTile(_emergencyTiles[3]), // Unsafe
+                            ],
+                          ),
                         ),
                       ],
                     ),
+
+                    // Centered SOS button overlaying the grid
+                    Center(
+                      child: _buildSOSButton(),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            // Voice recording bar
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: GestureDetector(
+                onTap: _toggleRecording,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: _isRecording
+                        ? Colors.red.withOpacity(0.15)
+                        : AppTheme.cardDark,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: _isRecording
+                          ? Colors.red
+                          : AppTheme.textSecondary.withOpacity(0.2),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        _isRecording ? Icons.stop_circle : Icons.mic,
+                        color: _isRecording ? Colors.red : AppTheme.textSecondary,
+                        size: 22,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        _isRecording
+                            ? 'Recording ${_recordingSeconds}s / 20s  ●'
+                            : (_audioPath != null
+                                ? '✓ Voice recorded – tap to re-record'
+                                : '🎤 Tap to record voice message'),
+                        style: TextStyle(
+                          color: _isRecording ? Colors.red : AppTheme.textSecondary,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
-              const SizedBox(height: 16),
+            ),
+
+            const SizedBox(height: 12),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmergencyTile(Map<String, dynamic> tile) {
+    final type = tile['type'] as String;
+    final icon = tile['icon'] as IconData;
+    final label = tile['label'] as String;
+    final color = tile['color'] as Color;
+    final gradientColors = tile['gradient'] as List<Color>;
+    final isSelected = _selectedEmergencyType == type;
+
+    return Expanded(
+      child: GestureDetector(
+        onTap: () {
+          setState(() {
+            _selectedEmergencyType =
+                _selectedEmergencyType == type ? 'general' : type;
+          });
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOut,
+          decoration: BoxDecoration(
+            gradient: isSelected
+                ? LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: gradientColors
+                        .map((c) => c.withOpacity(0.35))
+                        .toList(),
+                  )
+                : null,
+            color: isSelected ? null : AppTheme.cardDark.withOpacity(0.7),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: isSelected ? color : Colors.white.withOpacity(0.06),
+              width: isSelected ? 2.5 : 1,
+            ),
+            boxShadow: isSelected
+                ? [
+                    BoxShadow(
+                      color: color.withOpacity(0.3),
+                      blurRadius: 16,
+                      spreadRadius: 1,
+                    )
+                  ]
+                : [],
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, color: color, size: 40),
+              const SizedBox(height: 10),
+              Text(
+                label,
+                style: TextStyle(
+                  color: isSelected ? Colors.white : AppTheme.textSecondary,
+                  fontSize: 16,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                  letterSpacing: 0.5,
+                ),
+              ),
+              if (isSelected)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    'SELECTED',
+                    style: TextStyle(
+                      color: color.withOpacity(0.8),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 2,
+                    ),
+                  ),
+                ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSOSButton() {
+    final color = _sosColor;
+    final size = 160.0;
+
+    return GestureDetector(
+      onLongPressStart: (_) => _startHold(),
+      onLongPressEnd: (_) => _cancelHold(),
+      onLongPressCancel: _cancelHold,
+      child: SizedBox(
+        width: size + 16,
+        height: size + 16,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            // Circular progress ring (hold indicator)
+            if (_isHolding)
+              SizedBox(
+                width: size + 14,
+                height: size + 14,
+                child: CircularProgressIndicator(
+                  value: _holdProgress,
+                  strokeWidth: 6,
+                  backgroundColor: Colors.white.withOpacity(0.1),
+                  valueColor: AlwaysStoppedAnimation<Color>(color),
+                ),
+              ),
+
+            // Outer glow
+            Container(
+              width: size,
+              height: size,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: color.withOpacity(_isHolding ? 0.7 : 0.4),
+                    blurRadius: _isHolding ? 45 : 30,
+                    spreadRadius: _isHolding ? 10 : 4,
+                  ),
+                ],
+              ),
+            ),
+
+            // Main button
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              width: _isHolding ? size - 6 : size,
+              height: _isHolding ? size - 6 : size,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [color, color.withOpacity(0.7)],
+                ),
+                border: Border.all(color: Colors.white.withOpacity(0.3), width: 3),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.warning_amber_rounded,
+                      color: Colors.white, size: 42),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'SOS',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 34,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 4,
+                    ),
+                  ),
+                  Text(
+                    _isHolding ? 'HOLD...' : 'HOLD 1s',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.85),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 2,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -475,12 +547,9 @@ class _LocationRow extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, color: color, size: 18),
-        const SizedBox(width: 6),
-        Text(
-          text,
-          style: TextStyle(color: color, fontSize: 14),
-        ),
+        Icon(icon, color: color, size: 16),
+        const SizedBox(width: 4),
+        Text(text, style: TextStyle(color: color, fontSize: 12)),
       ],
     );
   }

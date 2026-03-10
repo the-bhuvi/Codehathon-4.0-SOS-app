@@ -34,22 +34,19 @@ class ShakeDetectionService : Service(), SensorEventListener {
         const val EXTRA_SUPABASE_URL = "supabase_url"
         const val EXTRA_SUPABASE_KEY = "supabase_key"
 
-        // Fixed shake detection parameters (no user-configurable slider)
-        private const val SHAKE_THRESHOLD = 2.7f  // acceleration delta threshold (gravity-subtracted)
+        // Fixed shake detection parameters
+        private const val SHAKE_THRESHOLD = 12.0f  // force magnitude threshold (sqrt of sum of squares)
         private const val SHAKES_NEEDED = 3
-        private const val SHAKE_WINDOW_MS = 1500L  // shakes must happen within this window
+        private const val SHAKE_WINDOW_MS = 2000L  // shakes must happen within 2 seconds
         private const val TRIGGER_COOLDOWN_MS = 30000L  // 30s cooldown between triggers
-        private const val MIN_SHAKE_INTERVAL_MS = 100L  // ignore readings closer than 100ms (debounce)
+        private const val MIN_SHAKE_INTERVAL_MS = 200L  // ignore readings closer than 200ms (debounce)
     }
 
     private var sensorManager: SensorManager? = null
     private var accelerometer: Sensor? = null
+    private var shakeThreshold: Float = SHAKE_THRESHOLD
 
-    // Shake detection state - uses delta acceleration (change between readings)
-    private var lastX: Float = 0f
-    private var lastY: Float = 0f
-    private var lastZ: Float = 0f
-    private var initialized: Boolean = false
+    // Shake detection state - uses force magnitude
     private var shakeCount: Int = 0
     private var firstShakeTime: Long = 0
     private var lastShakeTime: Long = 0
@@ -77,14 +74,20 @@ class ShakeDetectionService : Service(), SensorEventListener {
         supabaseKey = intent?.getStringExtra(EXTRA_SUPABASE_KEY) ?: ""
 
         // Fallback: read from SharedPreferences
-        if (supabaseUrl.isEmpty() || supabaseKey.isEmpty()) {
-            val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
-            if (supabaseUrl.isEmpty()) {
-                supabaseUrl = prefs.getString("flutter.supabase_url", "") ?: ""
-            }
-            if (supabaseKey.isEmpty()) {
-                supabaseKey = prefs.getString("flutter.supabase_key", "") ?: ""
-            }
+        val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+        if (supabaseUrl.isEmpty()) {
+            supabaseUrl = prefs.getString("flutter.supabase_url", "") ?: ""
+        }
+        if (supabaseKey.isEmpty()) {
+            supabaseKey = prefs.getString("flutter.supabase_key", "") ?: ""
+        }
+
+        // Read shake sensitivity setting (low=10, medium=12, high=15)
+        val sensitivity = prefs.getString("flutter.shake_sensitivity", "medium") ?: "medium"
+        shakeThreshold = when (sensitivity) {
+            "low" -> 10.0f
+            "high" -> 15.0f
+            else -> 12.0f  // medium
         }
 
         // Build stop action
@@ -130,7 +133,7 @@ class ShakeDetectionService : Service(), SensorEventListener {
             sensorManager?.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
         }
 
-        Log.d(TAG, "Shake detection service started (threshold=$SHAKE_THRESHOLD, shakes=$SHAKES_NEEDED)")
+        Log.d(TAG, "Shake detection service started (threshold=$shakeThreshold, shakes=$SHAKES_NEEDED, window=${SHAKE_WINDOW_MS}ms)")
         return START_STICKY
     }
 
@@ -141,23 +144,10 @@ class ShakeDetectionService : Service(), SensorEventListener {
         val y = event.values[1]
         val z = event.values[2]
 
-        if (!initialized) {
-            lastX = x; lastY = y; lastZ = z
-            initialized = true
-            return
-        }
+        // Calculate total force magnitude (includes gravity ~9.8)
+        val force = sqrt((x * x + y * y + z * z).toDouble()).toFloat()
 
-        // Calculate delta acceleration (change since last reading) — this removes gravity
-        val deltaX = abs(x - lastX)
-        val deltaY = abs(y - lastY)
-        val deltaZ = abs(z - lastZ)
-
-        lastX = x; lastY = y; lastZ = z
-
-        // Use max of the three axes for sensitivity
-        val maxDelta = maxOf(deltaX, deltaY, deltaZ)
-
-        if (maxDelta > SHAKE_THRESHOLD) {
+        if (force > shakeThreshold) {
             val now = System.currentTimeMillis()
 
             // Debounce: ignore if too close to last shake event
@@ -172,7 +162,7 @@ class ShakeDetectionService : Service(), SensorEventListener {
             }
             lastShakeTime = now
 
-            Log.d(TAG, "Shake #$shakeCount delta=${"%.2f".format(maxDelta)}")
+            Log.d(TAG, "Shake #$shakeCount force=${"%.2f".format(force)}")
 
             if (shakeCount >= SHAKES_NEEDED) {
                 shakeCount = 0
