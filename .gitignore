@@ -1,41 +1,49 @@
+# IDEs and Editors
+.vscode/
+.idea/
+*.iml
+*.swp
+*.swo
+.DS_Store
+
 # Logs
-logs
 *.log
 npm-debug.log*
 yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-*.local
-
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
+# OS Files
 .DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-node_modules
+Thumbs.db
 
-# ============================================================
-# SECRET FILES — NEVER COMMIT THESE
-# ============================================================
+# Environment Secrets — NEVER COMMIT THESE
 .env
 .env.*
 !.env.example
-*.env
+secrets.yaml
 
-# Flutter dart-define secrets
-dart_defines/
-
-# Python virtual environment
+# Dependencies
+node_modules/
 venv/
 __pycache__/
 *.pyc
+
+# Build outputs
+dist/
+build/
+*.exe
+*.apk
+*.ipa
+
+# Flutter specific
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.metadata
+analysis_options.yaml
+pubspec.lock
+
+# Specific to this project
+backend/api/.env
+backend/ai/.env
+dashboard/.env
+mobile/dart_defines/
